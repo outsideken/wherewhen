@@ -8,6 +8,16 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ---
 
+## [Unreleased]
+
+### Changed
+- README — version/test badges synced to **0.2.6** / **118** tests; geometry
+  catalogue includes ``point_at_distance`` and ``spherical_weighted_centroid``;
+  added **What this is not**, portable install wording, and repo-local
+  [COMPATIBILITY.md](COMPATIBILITY.md) for GitHub-only clones
+
+---
+
 ## [0.2.6] — 2026-06-24
 
 ### Added
