@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wherewhen"
+version = "0.2.6"
+description = "Shared where-and-when primitives — coordinates, geometry, time, timezone, and CRS"
+license = { text = "MIT" }
+authors = [{ name = "KChadwick" }]
+requires-python = ">=3.9"
+
+keywords = ["geospatial", "temporal", "coordinate", "mgrs", "gis", "timezone", "solar"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+
+dependencies = [
+    "shapely",
+    "mgrs",
+    "python-dateutil",
+    "astral",
+    "ephem",
+    "timezonefinder",
+    "pyproj",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["wherewhen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
