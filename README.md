@@ -1,9 +1,9 @@
 # wherewhen
 
-![Version](https://img.shields.io/badge/version-0.2.4-blue)
+![Version](https://img.shields.io/badge/version-0.2.6-blue)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-108%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-118%20passing-brightgreen)
 
 Shared **where** and **when** primitives for the JEMA toolkit ecosystem.
 
@@ -13,7 +13,10 @@ geometry helpers, datetime/timezone utilities, and CRS conversions.  It has
 
 Successor to **`geocore`** (renamed in Phase 1, 2026).  Versions
 independently of every other package — see [CHANGELOG.md](CHANGELOG.md) and
-the workspace [COMPATIBILITY.md](../COMPATIBILITY.md).
+[COMPATIBILITY.md](COMPATIBILITY.md).
+
+**Status:** alpha foundation library (`0.2.x`).  Stable enough for toolkit
+dependents that pin `wherewhen>=0.2.0` / `>=0.2.6`; not a GIS product.
 
 ---
 
@@ -23,7 +26,7 @@ the workspace [COMPATIBILITY.md](../COMPATIBILITY.md).
 wherewhen          ← you are here (where / when primitives)
  ├── jematools     ← JEMA platform I/O and CV glue only
  ├── h3tools       ← H3 geospatial helpers
- ├── viztools      ← plot styling and ColorBrewer palettes
+├── viztools      ← plot styling and ColorBrewer palettes
  └── tabtools      ← tabular profiling and anomaly scoring
 ```
 
@@ -43,15 +46,18 @@ platform-specific glue.
 
 ## Installation
 
+Replace `YOUR_LOCAL_PATH` with the parent folder that contains this repo
+(and, for a full stack, sibling packages such as `viztools` / `h3-tools`).
+
 ```bash
-pip install -e "/path/to/wherewhen"
+pip install -e "YOUR_LOCAL_PATH/wherewhen"
 ```
 
 With jematools (typical JEMA stack):
 
 ```bash
-pip install -e "/path/to/wherewhen"
-pip install -e "/path/to/jema-tools"
+pip install -e "YOUR_LOCAL_PATH/wherewhen"
+pip install -e "YOUR_LOCAL_PATH/jema-tools"
 ```
 
 ---
@@ -100,6 +106,8 @@ from wherewhen.geometry import (
     point_distance,        # great-circle distance (units='km'|'m'|'nm'|'mi')
     point_distance_km,     # shorthand for units='km'
     point_bearing,         # initial azimuth 0–360° clockwise from north
+    point_at_distance,     # destination along bearing + great-circle distance
+    spherical_weighted_centroid,  # weighted centre on the sphere
     mgrs_to_point,         # MGRS string → Point
     dms_to_point,          # DMS pair string → Point
     ddm_to_point,          # DDM pair string → Point
@@ -115,9 +123,10 @@ from wherewhen.geometry import (
 
 **Poles and antimeridian:** `normalize_latlon` reflects across the poles when
 `|lat| > 90` and shifts longitude by 180°; `normalize_longitude` wraps meridians
-to `[-180, 180]` or `[0, 360)`. `point_distance` and `point_bearing` use the
-shortest-path longitude delta (safe across ±180°). Strict `_validate_*` bounds
-are unchanged — normalize explicitly at ingest when sources emit unwrapped coordinates.
+to `[-180, 180]` or `[0, 360)`. `point_distance`, `point_bearing`, and related
+spherical helpers use the shortest-path longitude delta (safe across ±180°).
+Strict `_validate_*` bounds are unchanged — normalize explicitly at ingest when
+sources emit unwrapped coordinates.
 
 ```python
 from wherewhen.geometry import normalize_latlon, segment_crosses_antimeridian
@@ -164,6 +173,38 @@ from wherewhen.crs import (
 
 ---
 
+## What this is not
+
+- **Not a GIS** — no layers, projections UI, or spatial database.
+- **Not a full geodesic library** — distance / bearing / destination use a
+  spherical (Haversine) Earth model, not a full ellipsoidal suite.
+- **Not a CRS registry** — only WGS-84 plus GCJ-02, BD-09, and SK-42 helpers;
+  GCJ/BD transforms are practical offset models, not authoritative survey code.
+- **Not JEMA I/O** — `load_table`, CV types, and `temporalRange` pipes live in
+  `jematools`.
+- **Solar / lunar quality** depends on optional packages (`astral`, `ephem`,
+  `timezonefinder`) and observer assumptions.
+
+---
+
+## Compatibility
+
+This package declares **no toolkit dependencies**.  Downstream floors (as of
+the last stack check):
+
+| Consumer | Declares |
+|---|---|
+| jematools | `wherewhen>=0.2.0` |
+| h3tools | `wherewhen>=0.2.6` |
+| viztools | `wherewhen>=0.2.0` |
+| tabtools | `wherewhen>=0.2.0` |
+
+See [COMPATIBILITY.md](COMPATIBILITY.md) for the release checklist and how to
+read floors.  A fuller multi-package test matrix may also exist in a sibling
+toolkit workspace; this repo stays self-contained for GitHub clones.
+
+---
+
 ## Notification conventions
 
 ### Import-time load notice
@@ -175,7 +216,8 @@ Printed once when the package is first imported:
 ```
 
 Implemented via `wherewhen._messages.loaded()` — shared across all toolkit
-packages.
+packages.  Handy in notebooks; some production apps may prefer to suppress
+stdout on import.
 
 ### Errors and status
 
@@ -210,6 +252,8 @@ wherewhen/
 │   ├── test_crs.py
 │   └── test_package.py
 ├── CHANGELOG.md
+├── COMPATIBILITY.md
+├── LICENSE
 ├── pyproject.toml
 └── README.md
 ```
@@ -225,9 +269,8 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 - Runtime version: `wherewhen.__version__` (from `_version.py`)
 - Packaging version: `pyproject.toml`
 - Bump both together on release; tag `wherewhen-vX.Y.Z` in git
-- `jematools` declares `wherewhen>=0.2.0` — a wherewhen
-  minor release does **not** require a jematools release unless jematools starts
-  calling new APIs.  See workspace [COMPATIBILITY.md](../COMPATIBILITY.md).
+- A wherewhen minor release does **not** require a dependent release unless
+  that package starts calling new APIs.  See [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ---
 
@@ -238,10 +281,10 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 | `shapely` | All geometry modules |
 | `mgrs` | MGRS conversions |
 | `python-dateutil` | Flexible datetime parsing |
-| `timezonefinder` | `point_to_tz_offset` |
-| `astral` | `get_solar_data` |
-| `ephem` | `get_lunar_data` |
-| `pyproj` | SK-42 CRS conversions only |
+| `timezonefinder` | `point_to_tz_offset` (soft) |
+| `astral` | `get_solar_data` (soft) |
+| `ephem` | `get_lunar_data` (soft) |
+| `pyproj` | SK-42 CRS conversions only (soft) |
 
 ---
 
@@ -254,7 +297,7 @@ pytest tests/ -q
 
 | File | Coverage |
 |---|---|
-| `tests/test_geometry.py` | Coordinates, MGRS, DMS, DDM, `geometry_to_box` |
+| `tests/test_geometry.py` | Coordinates, MGRS/DMS/DDM, normalize/antimeridian, distance/bearing/destination, centroid, BOX helpers |
 | `tests/test_temporal.py` | Datetime helpers, timezone, solar/lunar |
 | `tests/test_crs.py` | GCJ-02, BD-09, SK-42, `convert_crs` |
 | `tests/test_package.py` | Version string, notification helpers |
