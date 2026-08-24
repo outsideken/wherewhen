@@ -21,3 +21,11 @@ htmlcov/
 .coverage
 *.cover
 .ipynb_checkpoints/
+
+# Notebooks: keep sources, ignore local data dumps and checkpoints
+.ipynb_checkpoints/
+notebooks/00 data/*
+!notebooks/00 data/DATA_README.txt
+notebooks/**/*.parquet
+notebooks/**/*.zip
+notebooks/**/*.gpkg
