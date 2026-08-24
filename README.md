@@ -251,6 +251,7 @@ wherewhen/
 │   ├── test_temporal.py
 │   ├── test_crs.py
 │   └── test_package.py
+├── notebooks/         # CRS demos (data not bundled)
 ├── CHANGELOG.md
 ├── COMPATIBILITY.md
 ├── LICENSE
