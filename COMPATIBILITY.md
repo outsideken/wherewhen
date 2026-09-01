@@ -1,8 +1,7 @@
 # wherewhen compatibility
 
 `wherewhen` versions **independently** of jematools, h3tools, viztools, and
-tabtools.  Dependents declare a minimum floor (e.g. `wherewhen>=0.2.6`) rather
-than sharing a release number.
+tabtools.  Dependents declare a minimum floor (e.g. `wherewhen>=0.2.6`).
 
 ## This package
 
@@ -12,17 +11,16 @@ than sharing a release number.
 | **Toolkit dependencies** | none |
 | **Python** | `>=3.9` |
 
-## Downstream floors (typical)
+## Current freeze (with h3tools)
 
-| Consumer | Declares |
+| Package | Version |
 |---|---|
-| jematools | `wherewhen>=0.2.0` |
-| h3tools | `wherewhen>=0.2.6` |
-| viztools | `wherewhen>=0.2.0` |
-| tabtools | `wherewhen>=0.2.0` |
+| wherewhen | **0.2.6** |
+| viztools | **0.1.3** (`wherewhen>=0.2.0`) |
+| h3tools | **0.8.0b1** (`wherewhen>=0.2.6`) |
+| jematools | **0.6.0b1** (`wherewhen>=0.2.0`) |
 
-A fuller dated multi-package test matrix may live in a sibling toolkit
-workspace.  This file is enough for a GitHub-only clone of `wherewhen`.
+See the toolkit workspace `COMPATIBILITY.md` for the full dated matrix.
 
 ## Release checklist
 

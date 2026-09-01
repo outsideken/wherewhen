@@ -1,0 +1,6 @@
+name,lat_wgs84,lon_wgs84,lat_sk42,lon_sk42,roundtrip_err_m,note
+Moscow_Red_Square,55.753900,37.620800,55.753857,37.622674,0.000,WGS-84 landmark; SK-42 via wherewhen.crs (EPSG:4284 / pyproj)
+Saint_Petersburg_Hermitage,59.939800,30.314600,59.939827,30.316854,0.000,WGS-84 landmark; SK-42 via wherewhen.crs (EPSG:4284 / pyproj)
+Vladivostok_Golden_Horn,43.115500,131.885500,43.115193,131.884407,0.000,WGS-84 landmark; SK-42 via wherewhen.crs (EPSG:4284 / pyproj)
+Novosibirsk_Opera,55.030200,82.920400,55.029592,82.920955,0.000,WGS-84 landmark; SK-42 via wherewhen.crs (EPSG:4284 / pyproj)
+Kaliningrad_Cathedral,54.706500,20.511200,54.706782,20.513204,0.001,WGS-84 landmark; SK-42 via wherewhen.crs (EPSG:4284 / pyproj)
