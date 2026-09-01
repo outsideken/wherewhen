@@ -1,0 +1,4 @@
+name,lon_bd09,lat_bd09,source
+Beijing_Tiananmen,116.408685,39.916453,synthetic BD-09 via wherewhen (stand-in for Baidu Get Point)
+Shanghai_Bund,121.500438,31.243669,synthetic BD-09 via wherewhen (stand-in for Baidu Get Point)
+Guangzhou_Canton_Tower,113.336153,23.109704,synthetic BD-09 via wherewhen (stand-in for Baidu Get Point)

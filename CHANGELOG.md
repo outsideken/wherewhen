@@ -10,11 +10,16 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Added
+- ``notebooks/00 data/wherewhen_crs_demo_*.csv`` — tiny China (GCJ/BD) and
+  Russia (SK-42) landmark samples for ``01 CRS China and Russia.ipynb``
+
 ### Changed
 - README — version/test badges synced to **0.2.6** / **118** tests; geometry
   catalogue includes ``point_at_distance`` and ``spherical_weighted_centroid``;
   added **What this is not**, portable install wording, and repo-local
   [COMPATIBILITY.md](COMPATIBILITY.md) for GitHub-only clones
+- COMPATIBILITY.md updated for the **0.8.0b1** toolkit freeze row
 
 ---
 

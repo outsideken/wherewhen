@@ -29,3 +29,7 @@ notebooks/00 data/*
 notebooks/**/*.parquet
 notebooks/**/*.zip
 notebooks/**/*.gpkg
+
+!notebooks/00 data/wherewhen_crs_demo_cn.csv
+!notebooks/00 data/wherewhen_crs_demo_bd09_ingest.csv
+!notebooks/00 data/wherewhen_crs_demo_ru.csv

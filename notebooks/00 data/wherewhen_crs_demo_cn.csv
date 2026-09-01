@@ -1,0 +1,7 @@
+name,lat_wgs84,lon_wgs84,lat_gcj02,lon_gcj02,lat_bd09,lon_bd09,offset_gcj_m,note
+Beijing_Tiananmen,39.908700,116.397500,39.910109,116.402313,39.916453,116.408685,439.4,WGS-84 landmark; GCJ/BD columns generated with wherewhen.crs for notebook demos
+Shanghai_Bund,31.240000,121.490000,31.238010,121.493832,31.243669,121.500438,426.2,WGS-84 landmark; GCJ/BD columns generated with wherewhen.crs for notebook demos
+Guangzhou_Canton_Tower,23.106600,113.324500,23.103995,113.329598,23.109704,113.336153,596.4,WGS-84 landmark; GCJ/BD columns generated with wherewhen.crs for notebook demos
+Chengdu_Tianfu,30.572800,104.066500,30.570339,104.068665,30.576356,104.075139,343.2,WGS-84 landmark; GCJ/BD columns generated with wherewhen.crs for notebook demos
+Urumqi_Grand_Bazaar,43.825600,87.616800,43.826811,87.618884,43.832964,87.625329,214.7,WGS-84 landmark; GCJ/BD columns generated with wherewhen.crs for notebook demos
+Lhasa_Potala,29.655500,91.117500,29.652787,91.118863,29.658669,91.125415,329.1,WGS-84 landmark; GCJ/BD columns generated with wherewhen.crs for notebook demos
