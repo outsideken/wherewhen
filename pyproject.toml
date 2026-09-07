@@ -7,7 +7,7 @@ name = "wherewhen"
 version = "0.2.6"
 description = "Shared where-and-when primitives — coordinates, geometry, time, timezone, and CRS"
 license = { text = "MIT" }
-authors = [{ name = "KChadwick" }]
+authors = [{ name = "OutsideKen" }]
 requires-python = ">=3.9"
 
 keywords = ["geospatial", "temporal", "coordinate", "mgrs", "gis", "timezone", "solar"]
