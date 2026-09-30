@@ -10,4 +10,4 @@ Versions independently of jematools, h3tools, viztools, and tabtools.
 See ``COMPATIBILITY.md`` and ``CHANGELOG.md`` in the toolkit workspace.
 """
 
-__version__: str = "0.2.6"
+__version__: str = "0.2.7"
