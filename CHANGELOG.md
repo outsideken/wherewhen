@@ -19,7 +19,7 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   Russia (SK-42) landmark samples for ``01 CRS China and Russia.ipynb``
 
 ### Changed
-- README — version/test badges synced to **0.2.6** / **118** tests; geometry
+- README — version/test badges synced to **0.2.7** / **147** tests; geometry
   catalogue includes ``point_at_distance`` and ``spherical_weighted_centroid``;
   added **What this is not**, portable install wording, and repo-local
   [COMPATIBILITY.md](COMPATIBILITY.md) for GitHub-only clones
