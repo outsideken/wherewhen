@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install wherewhen
+        run: pip install -e . pytest
+
+      - name: Run test suite
+        run: pytest tests/ -q
+
+      - name: Validate notebook files (structure only, no execution)
+        run: |
+          pip install nbformat
+          python - <<'PY'
+          import glob, sys, nbformat
+          bad = []
+          for path in sorted(glob.glob("notebooks/*.ipynb")):
+              try:
+                  nbformat.validate(nbformat.read(path, as_version=4))
+              except Exception as exc:
+                  bad.append(f"{path}: {str(exc).splitlines()[0]}")
+          if bad:
+              print("Invalid notebooks (open and re-save them in Jupyter; never hand-edit .ipynb JSON):")
+              print("\n".join(bad))
+              sys.exit(1)
+          print("All notebooks valid.")
+          PY
+
+  test-py39:
+    # jematools imports wherewhen inside JEMA, which runs Python 3.9.
+    name: test (Python 3.9, JEMA runtime)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install wherewhen
+        run: pip install -e . pytest
+
+      - name: Run test suite
+        run: pytest tests/ -q -rs
