@@ -10,6 +10,10 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.2.7] — 2026-09-30
+
 ### Added
 - ``notebooks/00 data/wherewhen_crs_demo_*.csv`` — tiny China (GCJ/BD) and
   Russia (SK-42) landmark samples for ``01 CRS China and Russia.ipynb``
@@ -20,6 +24,14 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   added **What this is not**, portable install wording, and repo-local
   [COMPATIBILITY.md](COMPATIBILITY.md) for GitHub-only clones
 - COMPATIBILITY.md updated for the **0.8.0b1** toolkit freeze row
+
+### Fixed
+- ``wherewhen._messages`` no longer uses ``from __future__ import annotations``.
+  The JEMA sandbox bans ``__future__``, and jematools imports this module
+  (outsideken/JEMA-Tools#2)
+- ``tests/test_jema_runtime_rules.py`` — checks every module for Python 3.9 syntax,
+  no ``__future__`` / ``os`` / ``sys`` / ``pathlib`` imports, and no ``X | Y``
+  annotations, so jematools' dependency stays JEMA-safe
 
 ---
 

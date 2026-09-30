@@ -17,8 +17,6 @@ Import-time load notices use :func:`loaded` — printed once when a package's
     ℹ️ [wherewhen] v<version> loaded.
 """
 
-from __future__ import annotations
-
 
 def warn(func: str, msg: str) -> str:
     """Format a validation or usage error message."""

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wherewhen"
-version = "0.2.6"
+version = "0.2.7"
 description = "Shared where-and-when primitives — coordinates, geometry, time, timezone, and CRS"
 license = { text = "MIT" }
 authors = [{ name = "OutsideKen" }]
