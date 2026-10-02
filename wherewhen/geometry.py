@@ -481,8 +481,9 @@ def _distance_to_metres(distance: float, units: str, *, func_name: str) -> float
 
 def _latlon_to_point(latlon: tuple, *, func_name: str = "latlon_to_point") -> Point:
     """Body of :func:`latlon_to_point`; errors name *func_name*."""
-    if isinstance(latlon, (str, bytes)):
-        # A string is not a pair, and "12" would otherwise unpack as ("1", "2").
+    if isinstance(latlon, (str, bytes, bytearray, memoryview)):
+        # Text and binary sequences are not pairs: "12" would unpack as ("1", "2"),
+        # and b"12" / bytearray / memoryview as the byte values (49, 50).
         raise TypeError(
             _warn(
                 func_name,

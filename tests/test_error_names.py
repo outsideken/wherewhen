@@ -187,6 +187,8 @@ EXCEPTION_CLASSES = [
     (TypeError, lambda: geometry.latlon_to_point("33UXP0500144000")),
     (TypeError, lambda: geometry.latlon_to_point("12")),
     (TypeError, lambda: geometry.latlon_to_point(b"12")),
+    (TypeError, lambda: geometry.latlon_to_point(bytearray(b"12"))),
+    (TypeError, lambda: geometry.latlon_to_point(memoryview(b"12"))),
     (ValueError, lambda: geometry.latlon_to_point((1, 2, 3))),
     (ValueError, lambda: geometry.latlon_to_point([1])),
     (ValueError, lambda: geometry.latlon_to_point(("a", "b"))),
@@ -203,7 +205,7 @@ def test_exception_class_is_technically_correct(expected, call):
 
 
 def test_latlon_to_point_rejects_strings_that_would_unpack_as_pairs():
-    # Before: "12" -> POINT (2 1) and b"12" -> POINT (50 49), silently.
-    for bad in ("12", "45", b"12"):
+    # Before: "12" -> POINT (2 1); b"12", bytearray and memoryview -> POINT (50 49).
+    for bad in ("12", "45", b"12", bytearray(b"12"), memoryview(b"12")):
         with pytest.raises(TypeError, match=r"\[latlon_to_point\]"):
             geometry.latlon_to_point(bad)

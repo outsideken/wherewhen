@@ -29,12 +29,13 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   agreed with Cursor on #5).  **Class changes:**
   ``get_ratio`` / ``get_bounds`` / ``get_polygon`` on a non-geometry and
   ``convert_crs`` with a non-string CRS: ``AttributeError`` → ``TypeError``;
-  ``latlon_to_point`` with a bare ``str`` / ``bytes``: ``ValueError`` →
+  ``latlon_to_point`` with a bare ``str`` / ``bytes`` / ``bytearray`` /
+  ``memoryview``: ``ValueError`` →
   ``TypeError``; ``epoch_to_datetime`` out of range: ``OverflowError`` (or
   ``OSError``, platform-dependent) → ``ValueError`` on every platform.
 - ``latlon_to_point("12")`` silently returned ``POINT (2 1)`` (and ``b"12"``
   returned ``POINT (50 49)``) because a two-character string unpacks as a pair.
-  Bare strings and bytes are now rejected.
+  Bare ``str``, ``bytes``, ``bytearray`` and ``memoryview`` are now rejected.
   ``convert_crs`` validates its own point instead of the inner converter's.
 - ``geometry_to_box`` on an empty geometry raised nothing and returned
   ``'BOX(nan nan,nan nan)'`` (or an empty point); it now raises ``ValueError``.
