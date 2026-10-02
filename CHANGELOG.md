@@ -17,6 +17,11 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   ``ImportError``.  ``zoneinfo`` is now imported and tracked on its own;
   ``point_to_tz_offset`` and the solar/lunar helpers still require
   ``timezonefinder`` (#2)
+- ``get_solar_data`` / ``get_lunar_data``: a missing ``timezonefinder`` (or
+  ``astral``) now reports the function the caller used, e.g.
+  ``❌ [get_lunar_data] timezonefinder is required to find the location's local
+  timezone``, instead of the internal ``[point_to_tz_offset]`` (or always
+  ``[get_solar_data]`` for astral)
 
 ---
 

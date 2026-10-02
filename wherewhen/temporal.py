@@ -183,12 +183,12 @@ def _ephem_moon_riseset(
     return _safe(obs.next_rising), _safe(obs.next_setting)
 
 
-def _require_astro_deps() -> None:
-    """Raise ImportError if astral or timezonefinder are not installed."""
+def _require_astro_deps(caller: str) -> None:
+    """Raise ImportError, naming *caller*, if astral or timezonefinder is missing."""
     if not _ASTRAL_AVAILABLE:
         raise ImportError(
             _skip(
-                "get_solar_data",
+                caller,
                 "astral is required for solar/lunar calculations. "
                 "Install with: pip install astral",
             )
@@ -196,8 +196,8 @@ def _require_astro_deps() -> None:
     if not _TZ_AVAILABLE:
         raise ImportError(
             _skip(
-                "point_to_tz_offset",
-                "timezonefinder is required. "
+                caller,
+                "timezonefinder is required to find the location's local timezone. "
                 "Install with: pip install timezonefinder",
             )
         )
@@ -727,7 +727,7 @@ def get_solar_data(
     >>> data["Day Length (Hours)"] > 0
     True
     """
-    _require_astro_deps()
+    _require_astro_deps("get_solar_data")
     _validate_point(pt)
     _validate_datetime(eval_dt)
 
@@ -827,7 +827,7 @@ def get_lunar_data(
     >>> 0.0 <= data["Illumination (%)"] <= 100.0
     True
     """
-    _require_astro_deps()
+    _require_astro_deps("get_lunar_data")
     _validate_point(pt)
     _validate_datetime(eval_dt)
 
