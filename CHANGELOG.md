@@ -24,12 +24,17 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   public→public call that is allowed (with the reason) so new ones get reviewed.
 
 ### Fixed
-- Raw Python errors are now labelled.  ``latlon_to_point`` on a non-pair and
-  ``epoch_to_datetime`` out of range keep their exception class (``ValueError`` /
-  ``TypeError``, ``OverflowError``) so existing handlers still match.
+- Raw Python errors are now labelled, and exception classes follow Python's
+  definitions (``TypeError`` = wrong type, ``ValueError`` = right type, bad value;
+  agreed with Cursor on #5).  **Class changes:**
   ``get_ratio`` / ``get_bounds`` / ``get_polygon`` on a non-geometry and
-  ``convert_crs`` with a non-string CRS now raise ``TypeError`` instead of an
-  accidental ``AttributeError``.
+  ``convert_crs`` with a non-string CRS: ``AttributeError`` → ``TypeError``;
+  ``latlon_to_point`` with a bare ``str`` / ``bytes``: ``ValueError`` →
+  ``TypeError``; ``epoch_to_datetime`` out of range: ``OverflowError`` (or
+  ``OSError``, platform-dependent) → ``ValueError`` on every platform.
+- ``latlon_to_point("12")`` silently returned ``POINT (2 1)`` (and ``b"12"``
+  returned ``POINT (50 49)``) because a two-character string unpacks as a pair.
+  Bare strings and bytes are now rejected.
   ``convert_crs`` validates its own point instead of the inner converter's.
 - ``geometry_to_box`` on an empty geometry raised nothing and returned
   ``'BOX(nan nan,nan nan)'`` (or an empty point); it now raises ``ValueError``.

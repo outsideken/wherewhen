@@ -172,3 +172,38 @@ def test_public_to_public_calls_are_reviewed():
         f"unreviewed: {sorted(found - set(ALLOWED_PUBLIC_CALLS))}; "
         f"stale: {sorted(set(ALLOWED_PUBLIC_CALLS) - found)}"
     )
+
+
+# Exception classes follow Python's definitions (agreed with Cursor on #5):
+# TypeError = wrong type of argument, ValueError = right type, bad value.
+EXCEPTION_CLASSES = [
+    (TypeError, lambda: geometry.get_ratio("x")),
+    (TypeError, lambda: geometry.get_bounds("x", 1.0)),
+    (TypeError, lambda: geometry.get_polygon("x", 1.0)),
+    (TypeError, lambda: crs.convert_crs(ORIGIN, "EPSG:4326", 123)),
+    (TypeError, lambda: geometry.latlon_to_point(None)),
+    (TypeError, lambda: geometry.latlon_to_point(5)),
+    (TypeError, lambda: geometry.latlon_to_point("x")),
+    (TypeError, lambda: geometry.latlon_to_point("33UXP0500144000")),
+    (TypeError, lambda: geometry.latlon_to_point("12")),
+    (TypeError, lambda: geometry.latlon_to_point(b"12")),
+    (ValueError, lambda: geometry.latlon_to_point((1, 2, 3))),
+    (ValueError, lambda: geometry.latlon_to_point([1])),
+    (ValueError, lambda: geometry.latlon_to_point(("a", "b"))),
+    (ValueError, lambda: temporal.epoch_to_datetime(1e30)),
+    (ValueError, lambda: temporal.epoch_to_datetime(-1e30)),
+]
+
+
+@pytest.mark.parametrize("expected, call", EXCEPTION_CLASSES, ids=[str(i) for i in range(len(EXCEPTION_CLASSES))])
+def test_exception_class_is_technically_correct(expected, call):
+    with pytest.raises(Exception) as excinfo:
+        call()
+    assert type(excinfo.value) is expected, f"{type(excinfo.value).__name__}: {excinfo.value}"
+
+
+def test_latlon_to_point_rejects_strings_that_would_unpack_as_pairs():
+    # Before: "12" -> POINT (2 1) and b"12" -> POINT (50 49), silently.
+    for bad in ("12", "45", b"12"):
+        with pytest.raises(TypeError, match=r"\[latlon_to_point\]"):
+            geometry.latlon_to_point(bad)

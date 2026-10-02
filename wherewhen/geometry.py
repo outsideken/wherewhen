@@ -481,12 +481,21 @@ def _distance_to_metres(distance: float, units: str, *, func_name: str) -> float
 
 def _latlon_to_point(latlon: tuple, *, func_name: str = "latlon_to_point") -> Point:
     """Body of :func:`latlon_to_point`; errors name *func_name*."""
+    if isinstance(latlon, (str, bytes)):
+        # A string is not a pair, and "12" would otherwise unpack as ("1", "2").
+        raise TypeError(
+            _warn(
+                func_name,
+                f"Expected a (latitude, longitude) pair, got {type(latlon).__name__} {latlon!r}.",
+            )
+        )
     try:
         latitude, longitude = latlon
         lat_f, lon_f = float(latitude), float(longitude)
     except (TypeError, ValueError) as exc:
-        # Same exception class as before this change (TypeError for e.g. None,
-        # ValueError for strings or bad pairs), so existing handlers still match.
+        # Keep Python's own class: TypeError when the container or an element
+        # has the wrong type, ValueError for the wrong length or a non-numeric
+        # string element.
         raise type(exc)(
             _warn(
                 func_name,
