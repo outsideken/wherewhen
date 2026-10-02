@@ -102,11 +102,18 @@ try:
 except ImportError:
     _EPHEM_AVAILABLE = False
 
+# zoneinfo (stdlib, Python 3.9+) is all that named-timezone conversion needs;
+# timezonefinder is only for looking a timezone up from coordinates.
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    _ZONEINFO_AVAILABLE = True
+except ImportError:
+    _ZONEINFO_AVAILABLE = False
+
 try:
     from timezonefinder import TimezoneFinder as _TF
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     _TF_INSTANCE = _TF()
-    _TZ_AVAILABLE = True
+    _TZ_AVAILABLE = _ZONEINFO_AVAILABLE
 except ImportError:
     _TZ_AVAILABLE = False
 
@@ -533,7 +540,7 @@ def shift_tz_by_name(dt: datetime, tz_name: str) -> datetime:
     Raises
     ------
     ImportError
-        If ``timezonefinder`` or ``zoneinfo`` is not installed.
+        If ``zoneinfo`` is not available.  ``timezonefinder`` is not needed.
     TypeError
         If *dt* is not a :class:`datetime` instance, or *tz_name* is not
         a ``str``.
@@ -555,12 +562,11 @@ def shift_tz_by_name(dt: datetime, tz_name: str) -> datetime:
     >>> local.hour   # UTC-4 in April (EDT)
     8
     """
-    if not _TZ_AVAILABLE:
+    if not _ZONEINFO_AVAILABLE:
         raise ImportError(
             _skip(
                 "shift_tz_by_name",
-                "timezonefinder and/or zoneinfo are required for timezone helpers. "
-                "Install with: pip install timezonefinder",
+                "zoneinfo is required (standard library, Python 3.9+).",
             )
         )
     _validate_datetime(dt)
