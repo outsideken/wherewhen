@@ -10,7 +10,7 @@ class TestPackage:
 
     def test_version_string(self):
         import wherewhen
-        assert wherewhen.__version__ == "0.2.7"
+        assert wherewhen.__version__ == "0.2.8"
 
     def test_messages_warn_format(self):
         from wherewhen._messages import warn

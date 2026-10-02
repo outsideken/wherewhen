@@ -7,7 +7,7 @@ tabtools.  Dependents declare a minimum floor (e.g. `wherewhen>=0.2.6`).
 
 | Item | Value |
 |---|---|
-| **Current version** | `0.2.7` |
+| **Current version** | `0.2.8` |
 | **Toolkit dependencies** | none |
 | **Python** | `>=3.9` |
 
