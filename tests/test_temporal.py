@@ -121,3 +121,61 @@ class TestSolarLunar:
         dt = ensure_utc(datetime(2026, 4, 24, 12, 0, 0))
         lunar = get_lunar_data(LONDON_PT, dt)
         assert isinstance(lunar, dict)
+
+class TestWithoutTimezonefinder:
+    """timezonefinder is a soft dependency: only coordinate lookups need it."""
+
+    def _run_blocked(self, code: str):
+        import subprocess
+        import sys
+        import textwrap
+        prelude = "import sys\nsys.modules['timezonefinder'] = None  # make the import fail\n"
+        return subprocess.run(
+            [sys.executable, "-c", prelude + textwrap.dedent(code)],
+            capture_output=True, text=True,
+        )
+
+    def test_shift_tz_by_name_needs_only_zoneinfo(self):
+        result = self._run_blocked("""
+            from datetime import datetime, timezone
+            import wherewhen.temporal as t
+            assert t._TZ_AVAILABLE is False
+            local = t.shift_tz_by_name(datetime(2026, 4, 24, 12, tzinfo=timezone.utc), "America/New_York")
+            print(local.hour, local.tzinfo)
+        """)
+        assert result.returncode == 0, result.stderr
+        # Last line: the import prints wherewhen's load notice first.
+        assert result.stdout.strip().splitlines()[-1].split() == ["8", "America/New_York"]
+
+    def test_point_to_tz_offset_still_requires_timezonefinder(self):
+        result = self._run_blocked("""
+            from datetime import datetime
+            from shapely.geometry import Point
+            import wherewhen.temporal as t
+            try:
+                t.point_to_tz_offset(Point(-0.1278, 51.5074), datetime(2026, 4, 24, 12))
+            except ImportError as exc:
+                print("ImportError", "timezonefinder" in str(exc))
+        """)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == "ImportError True"
+
+    def test_solar_and_lunar_errors_name_the_function_called(self):
+        # The message must name what the user called, not an internal helper.
+        result = self._run_blocked("""
+            from datetime import datetime
+            from shapely.geometry import Point
+            import wherewhen.temporal as t
+            for fn in (t.get_solar_data, t.get_lunar_data):
+                try:
+                    fn(Point(38.77, 48.53), datetime(2024, 6, 1, 12))
+                except ImportError as exc:
+                    msg = str(exc)
+                    print(fn.__name__, f"[{fn.__name__}]" in msg, "timezonefinder" in msg,
+                          "point_to_tz_offset" in msg)
+        """)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-2:] == [
+            "get_solar_data True True False",
+            "get_lunar_data True True False",
+        ]
