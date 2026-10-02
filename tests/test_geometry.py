@@ -33,7 +33,7 @@ class TestLatLonToPoint:
 
     def test_non_sequence_raises(self):
         from wherewhen.geometry import latlon_to_point
-        with pytest.raises((TypeError, ValueError)):
+        with pytest.raises(TypeError):
             latlon_to_point("51.5, -0.1")
 
 

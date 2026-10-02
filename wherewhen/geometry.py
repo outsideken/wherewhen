@@ -211,6 +211,33 @@ def _dd_to_ddm(dd: float, is_lat: bool) -> str:
     return f"{degrees}°{minutes:06.3f}'{direction}"
 
 
+def _normalize_longitude(lon, lon_range: str, func_name: str) -> float:
+    """Body of :func:`normalize_longitude`; errors name *func_name*."""
+    if not isinstance(lon, (int, float)):
+        raise TypeError(
+            _warn(
+                func_name,
+                f"Longitude must be a number, got {type(lon).__name__}.",
+            )
+        )
+    if lon_range == "[-180,180]":
+        wrapped = math.fmod(float(lon) + 180.0, 360.0)
+        if wrapped < 0.0:
+            wrapped += 360.0
+        return wrapped - 180.0
+    if lon_range == "[0,360)":
+        wrapped = math.fmod(float(lon), 360.0)
+        if wrapped < 0.0:
+            wrapped += 360.0
+        return wrapped
+    raise ValueError(
+        _warn(
+            func_name,
+            f"lon_range must be '[-180,180]' or '[0,360)', got {lon_range!r}.",
+        )
+    )
+
+
 def normalize_longitude(
     lon: float,
     *,
@@ -259,29 +286,7 @@ def normalize_longitude(
     >>> normalize_longitude(-170, lon_range="[0,360)")
     190.0
     """
-    if not isinstance(lon, (int, float)):
-        raise TypeError(
-            _warn(
-                "normalize_longitude",
-                f"Longitude must be a number, got {type(lon).__name__}.",
-            )
-        )
-    if lon_range == "[-180,180]":
-        wrapped = math.fmod(float(lon) + 180.0, 360.0)
-        if wrapped < 0.0:
-            wrapped += 360.0
-        return wrapped - 180.0
-    if lon_range == "[0,360)":
-        wrapped = math.fmod(float(lon), 360.0)
-        if wrapped < 0.0:
-            wrapped += 360.0
-        return wrapped
-    raise ValueError(
-        _warn(
-            "normalize_longitude",
-            f"lon_range must be '[-180,180]' or '[0,360)', got {lon_range!r}.",
-        )
-    )
+    return _normalize_longitude(lon, lon_range, "normalize_longitude")
 
 
 def normalize_latlon(
@@ -358,7 +363,7 @@ def normalize_latlon(
         lat_f = -180.0 - lat_f
         lon_f += 180.0
 
-    return lat_f, normalize_longitude(lon_f, lon_range=lon_range)
+    return lat_f, _normalize_longitude(lon_f, lon_range, "normalize_latlon")
 
 
 def segment_crosses_antimeridian(lon1: float, lon2: float) -> bool:
@@ -392,8 +397,8 @@ def segment_crosses_antimeridian(lon1: float, lon2: float) -> bool:
     >>> segment_crosses_antimeridian(170, -170)
     True
     """
-    a = normalize_longitude(lon1)
-    b = normalize_longitude(lon2)
+    a = _normalize_longitude(lon1, "[-180,180]", "segment_crosses_antimeridian")
+    b = _normalize_longitude(lon2, "[-180,180]", "segment_crosses_antimeridian")
     return abs(a - b) > 180.0
 
 
@@ -474,6 +479,35 @@ def _distance_to_metres(distance: float, units: str, *, func_name: str) -> float
 
 # ── Point conversions ─────────────────────────────────────────────────────────
 
+def _latlon_to_point(latlon: tuple, *, func_name: str = "latlon_to_point") -> Point:
+    """Body of :func:`latlon_to_point`; errors name *func_name*."""
+    if isinstance(latlon, (str, bytes, bytearray, memoryview)):
+        # Text and binary sequences are not pairs: "12" would unpack as ("1", "2"),
+        # and b"12" / bytearray / memoryview as the byte values (49, 50).
+        raise TypeError(
+            _warn(
+                func_name,
+                f"Expected a (latitude, longitude) pair, got {type(latlon).__name__} {latlon!r}.",
+            )
+        )
+    try:
+        latitude, longitude = latlon
+        lat_f, lon_f = float(latitude), float(longitude)
+    except (TypeError, ValueError) as exc:
+        # Keep Python's own class: TypeError when the container or an element
+        # has the wrong type, ValueError for the wrong length or a non-numeric
+        # string element.
+        raise type(exc)(
+            _warn(
+                func_name,
+                f"Expected a (latitude, longitude) pair of numbers, got {latlon!r}.",
+            )
+        ) from None
+    _validate_latitude(lat_f, func_name=func_name)
+    _validate_longitude(lon_f, func_name=func_name)
+    return Point(longitude, latitude)
+
+
 def latlon_to_point(latlon: tuple) -> Point:
     """
     Convert a ``(lat, lon)`` tuple to a Shapely ``Point(lon, lat)``.
@@ -504,10 +538,7 @@ def latlon_to_point(latlon: tuple) -> Point:
     >>> pt.x, pt.y
     (-0.1278, 51.5074)
     """
-    latitude, longitude = latlon
-    _validate_latitude(float(latitude))
-    _validate_longitude(float(longitude))
-    return Point(longitude, latitude)
+    return _latlon_to_point(latlon=latlon, func_name="latlon_to_point")
 
 
 def point_to_latlon(pt: Point) -> Tuple[float, float]:
@@ -545,7 +576,7 @@ def point_to_latlon(pt: Point) -> Tuple[float, float]:
     >>> point_to_latlon(Point(-0.1278, 51.5074))
     (51.5074, -0.1278)
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="point_to_latlon")
     return (pt.y, pt.x)
 
 
@@ -598,8 +629,8 @@ def point_distance(
     >>> point_distance(london, paris, units="m") > 300_000
     True
     """
-    _validate_point(pt_a)
-    _validate_point(pt_b)
+    _validate_point(pt_a, func_name="point_distance")
+    _validate_point(pt_b, func_name="point_distance")
     return _distance_from_metres(_haversine_m(pt_a, pt_b), units)
 
 
@@ -623,6 +654,8 @@ def point_distance_km(pt_a: Point, pt_b: Point) -> float:
     --------
     point_distance : General distance primitive with ``units=`` selection.
     """
+    _validate_point(pt_a, func_name="point_distance_km")
+    _validate_point(pt_b, func_name="point_distance_km")
     return point_distance(pt_a, pt_b, units="km")
 
 
@@ -667,8 +700,8 @@ def point_bearing(pt_a: Point, pt_b: Point) -> float:
     >>> point_bearing(Point(0, 0), Point(1, 0))  # due east at equator
     90.0
     """
-    _validate_point(pt_a)
-    _validate_point(pt_b)
+    _validate_point(pt_a, func_name="point_bearing")
+    _validate_point(pt_b, func_name="point_bearing")
     if pt_a.equals(pt_b):
         raise ValueError(
             _warn(
@@ -733,7 +766,7 @@ def point_at_distance(
     >>> point_at_distance(origin, 0, 90) == origin
     True
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="point_at_distance")
     if isinstance(distance, bool) or not isinstance(distance, (int, float)) or distance < 0:
         raise ValueError(
             _warn(
@@ -769,8 +802,8 @@ def point_at_distance(
     )
 
     lat_deg, lon_deg = normalize_latlon(math.degrees(lat2), math.degrees(lon2))
-    _validate_latitude(lat_deg)
-    _validate_longitude(lon_deg)
+    _validate_latitude(lat_deg, func_name="point_at_distance")
+    _validate_longitude(lon_deg, func_name="point_at_distance")
     return Point(lon_deg, lat_deg)
 
 
@@ -845,7 +878,7 @@ def spherical_weighted_centroid(
     x_sum = y_sum = z_sum = 0.0
     total_weight = 0.0
     for pt, weight in zip(points, weights):
-        _validate_point(pt)
+        _validate_point(pt, func_name="spherical_weighted_centroid")
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):
             raise ValueError(
                 _warn(
@@ -892,9 +925,16 @@ def spherical_weighted_centroid(
     y = y_sum / norm
     z = z_sum / norm
     lat_deg, lon_deg = normalize_latlon(math.degrees(math.asin(z)), math.degrees(math.atan2(y, x)))
-    _validate_latitude(lat_deg)
-    _validate_longitude(lon_deg)
+    _validate_latitude(lat_deg, func_name="spherical_weighted_centroid")
+    _validate_longitude(lon_deg, func_name="spherical_weighted_centroid")
     return Point(lon_deg, lat_deg)
+
+
+def _mgrs_to_point(mgrs_str: str, return_latlon: bool=False, *, func_name: str = "mgrs_to_point"):
+    """Body of :func:`mgrs_to_point`; errors name *func_name*."""
+    _validate_mgrs(mgrs_str, func_name=func_name)
+    lat_dd, lon_dd = _MGRS_INSTANCE.toLatLon(mgrs_str)
+    return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
 
 
 def mgrs_to_point(mgrs_str: str, return_latlon: bool = False):
@@ -934,8 +974,52 @@ def mgrs_to_point(mgrs_str: str, return_latlon: bool = False):
     >>> round(pt.y, 4), round(pt.x, 4)
     (51.5074, -0.1277)
     """
-    _validate_mgrs(mgrs_str)
-    lat_dd, lon_dd = _MGRS_INSTANCE.toLatLon(mgrs_str)
+    return _mgrs_to_point(mgrs_str=mgrs_str, return_latlon=return_latlon, func_name="mgrs_to_point")
+
+
+def _dms_to_point(dms_str: str, return_latlon: bool=False, debug: bool=False, *, func_name: str = "dms_to_point") -> Point:
+    """Body of :func:`dms_to_point`; errors name *func_name*."""
+    _validate_dms(dms_str, func_name=func_name)
+    scrubbed = _scrub_dms(dms_str)
+
+    if debug:
+        print(f"[dms_to_point] scrubbed → {scrubbed!r}")
+
+    match = _DMS_PATTERN.search(scrubbed)
+    if not match:
+        raise ValueError(
+            _warn(
+                func_name,
+                f"Could not parse DMS pair. Input: {dms_str!r} "
+                f"(scrubbed: {scrubbed!r})",
+            )
+        )
+
+    g = match.groupdict()
+    if debug:
+        print(f"[dms_to_point] groups → {g}")
+
+    lat_deg = float(g["lat_deg"])
+    lat_min = float(g["lat_min"]) if g["lat_min"] else 0.0
+    lat_sec = float(g["lat_sec"]) if g["lat_sec"] else 0.0
+    lat_sign = 1.0 if g["lat_dir"].upper() == "N" else -1.0
+    lat_dd = lat_sign * (lat_deg + lat_min / 60.0 + lat_sec / 3600.0)
+
+    lon_deg = float(g["lon_deg"])
+    lon_min = float(g["lon_min"]) if g["lon_min"] else 0.0
+    lon_sec = float(g["lon_sec"]) if g["lon_sec"] else 0.0
+    lon_sign = 1.0 if g["lon_dir"].upper() == "E" else -1.0
+    lon_dd = lon_sign * (lon_deg + lon_min / 60.0 + lon_sec / 3600.0)
+
+    if not (-90 <= lat_dd <= 90):
+        raise ValueError(
+            _warn(func_name, f"Latitude out of range: {lat_dd}")
+        )
+    if not (-180 <= lon_dd <= 180):
+        raise ValueError(
+            _warn(func_name, f"Longitude out of range: {lon_dd}")
+        )
+
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
 
 
@@ -993,45 +1077,34 @@ def dms_to_point(
     >>> round(pt.y, 4), round(pt.x, 4)
     (51.5072, -0.1278)
     """
-    _validate_dms(dms_str)
-    scrubbed = _scrub_dms(dms_str)
+    return _dms_to_point(dms_str=dms_str, return_latlon=return_latlon, debug=debug, func_name="dms_to_point")
 
-    if debug:
-        print(f"[dms_to_point] scrubbed → {scrubbed!r}")
 
-    match = _DMS_PATTERN.search(scrubbed)
+def _ddm_to_point(ddm_str: str, return_latlon: bool=False, *, func_name: str = "ddm_to_point") -> Point:
+    """Body of :func:`ddm_to_point`; errors name *func_name*."""
+    _validate_ddm_pair(ddm_str, func_name=func_name)
+
+    match = _DDM_PATTERN.search(ddm_str)
     if not match:
         raise ValueError(
-            _warn(
-                "dms_to_point",
-                f"Could not parse DMS pair. Input: {dms_str!r} "
-                f"(scrubbed: {scrubbed!r})",
-            )
+            _warn(func_name, f"Could not parse DDM pair: {ddm_str!r}")
         )
 
     g = match.groupdict()
-    if debug:
-        print(f"[dms_to_point] groups → {g}")
+    lat_dd = (1.0 if g["lat_dir"].upper() == "N" else -1.0) * (
+        float(g["lat_deg"]) + float(g["lat_min"]) / 60.0
+    )
+    lon_dd = (1.0 if g["lon_dir"].upper() == "E" else -1.0) * (
+        float(g["lon_deg"]) + float(g["lon_min"]) / 60.0
+    )
 
-    lat_deg = float(g["lat_deg"])
-    lat_min = float(g["lat_min"]) if g["lat_min"] else 0.0
-    lat_sec = float(g["lat_sec"]) if g["lat_sec"] else 0.0
-    lat_sign = 1.0 if g["lat_dir"].upper() == "N" else -1.0
-    lat_dd = lat_sign * (lat_deg + lat_min / 60.0 + lat_sec / 3600.0)
-
-    lon_deg = float(g["lon_deg"])
-    lon_min = float(g["lon_min"]) if g["lon_min"] else 0.0
-    lon_sec = float(g["lon_sec"]) if g["lon_sec"] else 0.0
-    lon_sign = 1.0 if g["lon_dir"].upper() == "E" else -1.0
-    lon_dd = lon_sign * (lon_deg + lon_min / 60.0 + lon_sec / 3600.0)
-
-    if not (-90 <= lat_dd <= 90):
+    if not (-90.0 <= lat_dd <= 90.0):
         raise ValueError(
-            _warn("dms_to_point", f"Latitude out of range: {lat_dd}")
+            _warn(func_name, f"Latitude out of range: {lat_dd}")
         )
-    if not (-180 <= lon_dd <= 180):
+    if not (-180.0 <= lon_dd <= 180.0):
         raise ValueError(
-            _warn("dms_to_point", f"Longitude out of range: {lon_dd}")
+            _warn(func_name, f"Longitude out of range: {lon_dd}")
         )
 
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
@@ -1079,32 +1152,7 @@ def ddm_to_point(ddm_str: str, return_latlon: bool = False) -> Point:
     >>> round(pt.y, 4), round(pt.x, 4)
     (51.5067, -0.1283)
     """
-    _validate_ddm_pair(ddm_str)
-
-    match = _DDM_PATTERN.search(ddm_str)
-    if not match:
-        raise ValueError(
-            _warn("ddm_to_point", f"Could not parse DDM pair: {ddm_str!r}")
-        )
-
-    g = match.groupdict()
-    lat_dd = (1.0 if g["lat_dir"].upper() == "N" else -1.0) * (
-        float(g["lat_deg"]) + float(g["lat_min"]) / 60.0
-    )
-    lon_dd = (1.0 if g["lon_dir"].upper() == "E" else -1.0) * (
-        float(g["lon_deg"]) + float(g["lon_min"]) / 60.0
-    )
-
-    if not (-90.0 <= lat_dd <= 90.0):
-        raise ValueError(
-            _warn("ddm_to_point", f"Latitude out of range: {lat_dd}")
-        )
-    if not (-180.0 <= lon_dd <= 180.0):
-        raise ValueError(
-            _warn("ddm_to_point", f"Longitude out of range: {lon_dd}")
-        )
-
-    return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
+    return _ddm_to_point(ddm_str=ddm_str, return_latlon=return_latlon, func_name="ddm_to_point")
 
 
 # ── Unified coordinate dispatcher ─────────────────────────────────────────────
@@ -1164,19 +1212,19 @@ def coordinate_to_point(coord_input) -> Point:
     True
     """
     if isinstance(coord_input, (tuple, list)) and len(coord_input) == 2:
-        return latlon_to_point(coord_input)
+        return _latlon_to_point(latlon=coord_input, func_name="coordinate_to_point")
 
     if isinstance(coord_input, str):
         cleaned = coord_input.strip()
         if _MGRS_DETECT.match(cleaned.upper()):
-            return mgrs_to_point(cleaned)
+            return _mgrs_to_point(mgrs_str=cleaned, func_name="coordinate_to_point")
         if _DMS_SYMBOLS.search(cleaned) or (
             len(_NSEW.findall(cleaned)) == 2
             and re.search(r"\d", cleaned)
         ):
-            return dms_to_point(cleaned)
+            return _dms_to_point(dms_str=cleaned, func_name="coordinate_to_point")
         if _DDM_DETECT.search(cleaned):
-            return ddm_to_point(cleaned)
+            return _ddm_to_point(ddm_str=cleaned, func_name="coordinate_to_point")
         raise ValueError(
             _warn(
                 "coordinate_to_point",
@@ -1232,7 +1280,7 @@ def point_to_dms(pt: Point) -> Tuple[str, str]:
     >>> lon_dms.endswith("W")
     True
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="point_to_dms")
     return _dd_to_dms(pt.y, is_lat=True), _dd_to_dms(pt.x, is_lat=False)
 
 
@@ -1273,7 +1321,7 @@ def point_to_ddm(pt: Point) -> Tuple[str, str]:
     >>> lon_ddm.endswith("W")
     True
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="point_to_ddm")
     return _dd_to_ddm(pt.y, is_lat=True), _dd_to_ddm(pt.x, is_lat=False)
 
 
@@ -1325,8 +1373,8 @@ def point_to_mgrs(pt: Point, precision: int = 5) -> str:
     >>> isinstance(mgrs, str) and len(mgrs) > 0
     True
     """
-    _validate_point(pt)
-    _validate_mgrs_precision(precision)
+    _validate_point(pt, func_name="point_to_mgrs")
+    _validate_mgrs_precision(precision, func_name="point_to_mgrs")
     return _MGRS_INSTANCE.toMGRS(pt.y, pt.x, MGRSPrecision=precision)
 
 
@@ -1401,6 +1449,13 @@ def geometry_to_box(geometry: BaseGeometry, as_polygon: bool = False) -> Union[s
                 "bounds and cannot form a meaningful bounding box.",
             )
         )
+    if geometry.is_empty:
+        raise ValueError(
+            _warn(
+                "geometry_to_box",
+                "Cannot build a bounding box from an empty geometry.",
+            )
+        )
     if not isinstance(as_polygon, bool):
         raise TypeError(
             _warn(
@@ -1471,10 +1526,10 @@ def box_to_polygon(box_str: str) -> Polygon:
             )
         )
     minx, miny, maxx, maxy = (float(match.group(i)) for i in range(1, 5))
-    _validate_longitude(minx)
-    _validate_latitude(miny)
-    _validate_longitude(maxx)
-    _validate_latitude(maxy)
+    _validate_longitude(minx, func_name="box_to_polygon")
+    _validate_latitude(miny, func_name="box_to_polygon")
+    _validate_longitude(maxx, func_name="box_to_polygon")
+    _validate_latitude(maxy, func_name="box_to_polygon")
     return shapely_box(minx, miny, maxx, maxy)
 
 
@@ -1508,6 +1563,10 @@ def get_ratio(geom: BaseGeometry, tolerance: float = 1e-8) -> float:
     >>> get_ratio(box(0, 0, 16, 9))
     1.7777...
     """
+    if not isinstance(geom, BaseGeometry):
+        raise TypeError(
+            _warn("get_ratio", f"Expected a shapely geometry, got {type(geom).__name__}.")
+        )
     if geom.is_empty:
         raise ValueError(
             _warn("get_ratio", "Cannot compute aspect ratio of empty geometry.")
@@ -1527,6 +1586,81 @@ def get_ratio(geom: BaseGeometry, tolerance: float = 1e-8) -> float:
         )
 
     return width / height
+
+
+def _get_bounds(geom, target_aspect: float, fit_mode: str, tolerance: float,
+                func_name: str) -> Tuple[float, float, float, float]:
+    """Body of :func:`get_bounds`; errors name *func_name*."""
+    if not isinstance(geom, BaseGeometry):
+        raise TypeError(
+            _warn(func_name, f"Expected a shapely geometry, got {type(geom).__name__}.")
+        )
+    if geom.is_empty:
+        raise ValueError(
+            _warn(func_name, "Cannot adjust aspect ratio of empty geometry.")
+        )
+    if target_aspect <= 0:
+        raise ValueError(
+            _warn(
+                func_name,
+                f"target_aspect must be positive, got {target_aspect}.",
+            )
+        )
+    if fit_mode not in ("contain", "cover", "fit-width", "fit-height"):
+        raise ValueError(
+            _warn(
+                func_name,
+                f"fit_mode must be 'contain', 'cover', 'fit-width', or "
+                f"'fit-height', got {fit_mode!r}.",
+            )
+        )
+
+    minx, miny, maxx, maxy = geom.bounds
+    width  = maxx - minx
+    height = maxy - miny
+
+    if width < tolerance or height < tolerance:
+        raise ValueError(
+            _warn(
+                func_name,
+                f"Geometry has degenerate bounding box "
+                f"(width={width:.6g}, height={height:.6g}).",
+            )
+        )
+
+    cx = (minx + maxx) / 2
+    cy = (miny + maxy) / 2
+    current_aspect = width / height
+
+    if fit_mode == "contain":
+        if current_aspect > target_aspect:
+            # Too wide → expand height
+            half_h = (width / target_aspect) / 2
+            return (minx, cy - half_h, maxx, cy + half_h)
+        else:
+            # Too tall (or square) → expand width
+            half_w = (height * target_aspect) / 2
+            return (cx - half_w, miny, cx + half_w, maxy)
+
+    elif fit_mode == "cover":
+        if current_aspect > target_aspect:
+            # Too wide → shrink width
+            half_w = (height * target_aspect) / 2
+            return (cx - half_w, miny, cx + half_w, maxy)
+        else:
+            # Too tall (or square) → shrink height
+            half_h = (width / target_aspect) / 2
+            return (minx, cy - half_h, maxx, cy + half_h)
+
+    elif fit_mode == "fit-width":
+        # Width is fixed; derive height from target_aspect
+        half_h = (width / target_aspect) / 2
+        return (minx, cy - half_h, maxx, cy + half_h)
+
+    else:  # "fit-height"
+        # Height is fixed; derive width from target_aspect
+        half_w = (height * target_aspect) / 2
+        return (cx - half_w, miny, cx + half_w, maxy)
 
 
 def get_bounds(
@@ -1590,72 +1724,7 @@ def get_bounds(
     >>> get_bounds(geom, 16/9, fit_mode="fit-height")  # fix height, adjust width
     (-0.333..., 0.0, 10.333..., 6.0)
     """
-    if geom.is_empty:
-        raise ValueError(
-            _warn("get_bounds", "Cannot adjust aspect ratio of empty geometry.")
-        )
-    if target_aspect <= 0:
-        raise ValueError(
-            _warn(
-                "get_bounds",
-                f"target_aspect must be positive, got {target_aspect}.",
-            )
-        )
-    if fit_mode not in ("contain", "cover", "fit-width", "fit-height"):
-        raise ValueError(
-            _warn(
-                "get_bounds",
-                f"fit_mode must be 'contain', 'cover', 'fit-width', or "
-                f"'fit-height', got {fit_mode!r}.",
-            )
-        )
-
-    minx, miny, maxx, maxy = geom.bounds
-    width  = maxx - minx
-    height = maxy - miny
-
-    if width < tolerance or height < tolerance:
-        raise ValueError(
-            _warn(
-                "get_bounds",
-                f"Geometry has degenerate bounding box "
-                f"(width={width:.6g}, height={height:.6g}).",
-            )
-        )
-
-    cx = (minx + maxx) / 2
-    cy = (miny + maxy) / 2
-    current_aspect = width / height
-
-    if fit_mode == "contain":
-        if current_aspect > target_aspect:
-            # Too wide → expand height
-            half_h = (width / target_aspect) / 2
-            return (minx, cy - half_h, maxx, cy + half_h)
-        else:
-            # Too tall (or square) → expand width
-            half_w = (height * target_aspect) / 2
-            return (cx - half_w, miny, cx + half_w, maxy)
-
-    elif fit_mode == "cover":
-        if current_aspect > target_aspect:
-            # Too wide → shrink width
-            half_w = (height * target_aspect) / 2
-            return (cx - half_w, miny, cx + half_w, maxy)
-        else:
-            # Too tall (or square) → shrink height
-            half_h = (width / target_aspect) / 2
-            return (minx, cy - half_h, maxx, cy + half_h)
-
-    elif fit_mode == "fit-width":
-        # Width is fixed; derive height from target_aspect
-        half_h = (width / target_aspect) / 2
-        return (minx, cy - half_h, maxx, cy + half_h)
-
-    else:  # "fit-height"
-        # Height is fixed; derive width from target_aspect
-        half_w = (height * target_aspect) / 2
-        return (cx - half_w, miny, cx + half_w, maxy)
+    return _get_bounds(geom, target_aspect, fit_mode, tolerance, "get_bounds")
 
 
 def get_polygon(
@@ -1696,10 +1765,5 @@ def get_polygon(
     64.0
     """
     return shapely_box(
-        *get_bounds(
-            geom=geom,
-            target_aspect=target_aspect,
-            fit_mode=fit_mode,
-            tolerance=tolerance,
-        )
+        *_get_bounds(geom, target_aspect, fit_mode, tolerance, "get_polygon")
     )

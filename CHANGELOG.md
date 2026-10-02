@@ -10,7 +10,35 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Changed
+- **Errors name the public function the user called** (#4).  Messages used to
+  name an internal validator (``⚠️ [validate_point] …`` from ``point_to_mgrs``)
+  or another public function (``[normalize_longitude]`` from
+  ``segment_crosses_antimeridian``, ``[get_bounds]`` from ``get_polygon``).
+  Every ``_validate_*`` now takes an optional ``func_name`` (default unchanged,
+  so dependents keep working) and all 37 public functions pass their own name.
+  Delegation keeps the caller's name: ``coordinate_to_point`` → the coordinate
+  parsers, ``cn_bd09_to_wgs84`` → the GCJ-02 step, and ``convert_crs`` → every
+  converter go through private helpers that take ``func_name``.
+  ``tests/test_error_names.py`` checks every exported function, and lists every
+  public→public call that is allowed (with the reason) so new ones get reviewed.
+
 ### Fixed
+- Raw Python errors are now labelled, and exception classes follow Python's
+  definitions (``TypeError`` = wrong type, ``ValueError`` = right type, bad value;
+  agreed with Cursor on #5).  **Class changes:**
+  ``get_ratio`` / ``get_bounds`` / ``get_polygon`` on a non-geometry and
+  ``convert_crs`` with a non-string CRS: ``AttributeError`` → ``TypeError``;
+  ``latlon_to_point`` with a bare ``str`` / ``bytes`` / ``bytearray`` /
+  ``memoryview``: ``ValueError`` →
+  ``TypeError``; ``epoch_to_datetime`` out of range: ``OverflowError`` (or
+  ``OSError``, platform-dependent) → ``ValueError`` on every platform.
+- ``latlon_to_point("12")`` silently returned ``POINT (2 1)`` (and ``b"12"``
+  returned ``POINT (50 49)``) because a two-character string unpacks as a pair.
+  Bare ``str``, ``bytes``, ``bytearray`` and ``memoryview`` are now rejected.
+  ``convert_crs`` validates its own point instead of the inner converter's.
+- ``geometry_to_box`` on an empty geometry raised nothing and returned
+  ``'BOX(nan nan,nan nan)'`` (or an empty point); it now raises ``ValueError``.
 - ``shift_tz_by_name`` no longer requires ``timezonefinder``.  It only uses the
   standard library's ``zoneinfo``, but was gated on the flag that is ``True`` only
   when ``timezonefinder`` imports, so without it the conversion raised

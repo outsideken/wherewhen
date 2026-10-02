@@ -268,9 +268,18 @@ def epoch_to_datetime(value: Union[int, float]) -> datetime:
                 f"Expected int or float, got {type(value).__name__}.",
             )
         )
-    if abs(value) >= _EPOCH_MS_THRESHOLD:
-        value = value / 1000.0
-    return datetime.fromtimestamp(value, tz=timezone.utc)
+    seconds = value / 1000.0 if abs(value) >= _EPOCH_MS_THRESHOLD else value
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        # fromtimestamp raises OverflowError or OSError depending on the platform;
+        # an out-of-range argument is a ValueError (as datetime(10000, 1, 1) is).
+        raise ValueError(
+            _warn(
+                "epoch_to_datetime",
+                f"Timestamp {value!r} is outside the range a datetime can represent.",
+            )
+        ) from None
 
 
 def convert_to_datetime(dt_input, force_utc: bool = False) -> datetime:
@@ -389,7 +398,7 @@ def is_dt_naive(dt: datetime) -> bool:
     >>> is_dt_naive(datetime(2026, 1, 1, tzinfo=timezone.utc))
     False
     """
-    _validate_datetime(dt)
+    _validate_datetime(dt, func_name="is_dt_naive")
     return dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None
 
 
@@ -434,7 +443,7 @@ def ensure_utc(dt: datetime) -> datetime:
     >>> ensure_utc(aware_bst).hour
     12
     """
-    _validate_datetime(dt)
+    _validate_datetime(dt, func_name="ensure_utc")
     if is_dt_naive(dt):
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
@@ -473,7 +482,7 @@ def start_of_day(dt: datetime) -> datetime:
     >>> start_of_day(dt)
     datetime.datetime(2026, 4, 24, 0, 0)
     """
-    _validate_datetime(dt)
+    _validate_datetime(dt, func_name="start_of_day")
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
@@ -511,7 +520,7 @@ def end_of_day(dt: datetime) -> datetime:
     >>> eod.hour, eod.minute, eod.second, eod.microsecond
     (23, 59, 59, 999999)
     """
-    _validate_datetime(dt)
+    _validate_datetime(dt, func_name="end_of_day")
     return dt.replace(hour=23, minute=59, second=59, microsecond=999_999)
 
 
@@ -569,8 +578,8 @@ def shift_tz_by_name(dt: datetime, tz_name: str) -> datetime:
                 "zoneinfo is required (standard library, Python 3.9+).",
             )
         )
-    _validate_datetime(dt)
-    _validate_string(tz_name)
+    _validate_datetime(dt, func_name="shift_tz_by_name")
+    _validate_string(tz_name, func_name="shift_tz_by_name")
     dt_utc = ensure_utc(dt)
     try:
         return dt_utc.astimezone(ZoneInfo(tz_name))
@@ -646,8 +655,8 @@ def point_to_tz_offset(pt: Point, eval_dt: datetime) -> Tuple[str, float]:
                 "Install with: pip install timezonefinder",
             )
         )
-    _validate_point(pt)
-    _validate_datetime(eval_dt)
+    _validate_point(pt, func_name="point_to_tz_offset")
+    _validate_datetime(eval_dt, func_name="point_to_tz_offset")
 
     tz_name = _TF_INSTANCE.timezone_at(lng=pt.x, lat=pt.y)
     if not tz_name:
@@ -728,8 +737,8 @@ def get_solar_data(
     True
     """
     _require_astro_deps("get_solar_data")
-    _validate_point(pt)
-    _validate_datetime(eval_dt)
+    _validate_point(pt, func_name="get_solar_data")
+    _validate_datetime(eval_dt, func_name="get_solar_data")
 
     eval_dt_utc, tz_name, tz_offset, local_tz, target_date = _astro_context(pt, eval_dt)
     obs = Observer(latitude=pt.y, longitude=pt.x, elevation=elevation)
@@ -828,8 +837,8 @@ def get_lunar_data(
     True
     """
     _require_astro_deps("get_lunar_data")
-    _validate_point(pt)
-    _validate_datetime(eval_dt)
+    _validate_point(pt, func_name="get_lunar_data")
+    _validate_datetime(eval_dt, func_name="get_lunar_data")
 
     eval_dt_utc, tz_name, tz_offset, local_tz, target_date = _astro_context(pt, eval_dt)
 
