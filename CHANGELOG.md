@@ -10,7 +10,23 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Changed
+- **Errors name the public function the user called** (#4).  Messages used to
+  name an internal validator (``⚠️ [validate_point] …`` from ``point_to_mgrs``)
+  or another public function (``[normalize_longitude]`` from
+  ``segment_crosses_antimeridian``, ``[get_bounds]`` from ``get_polygon``).
+  Every ``_validate_*`` now takes an optional ``func_name`` (default unchanged,
+  so dependents keep working) and all 37 public functions pass their own name.
+  ``tests/test_error_names.py`` checks every exported function.
+
 ### Fixed
+- Raw Python errors are now labelled: ``get_ratio`` / ``get_bounds`` /
+  ``get_polygon`` on a non-geometry (``AttributeError``), ``latlon_to_point`` on a
+  non-pair (unpacking ``ValueError``), ``epoch_to_datetime`` out of range
+  (``OverflowError``), ``convert_crs`` with a non-string CRS (``AttributeError``).
+  ``convert_crs`` validates its own point instead of the inner converter's.
+- ``geometry_to_box`` on an empty geometry raised nothing and returned
+  ``'BOX(nan nan,nan nan)'`` (or an empty point); it now raises ``ValueError``.
 - ``shift_tz_by_name`` no longer requires ``timezonefinder``.  It only uses the
   standard library's ``zoneinfo``, but was gated on the flag that is ``True`` only
   when ``timezonefinder`` imports, so without it the conversion raised

@@ -53,7 +53,7 @@ from typing import Dict, Tuple
 from shapely.geometry import Point
 
 from wherewhen._messages import skip as _skip, warn as _warn
-from wherewhen._validators import _validate_point
+from wherewhen._validators import _validate_point, _validate_string
 
 # ── Optional-dependency guard ─────────────────────────────────────────────────
 try:
@@ -176,7 +176,7 @@ def wgs84_to_cn_gcj02(pt: Point) -> Point:
     >>> abs(pt_gcj.x - pt_wgs.x) > 0.001   # offset applied
     True
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="wgs84_to_cn_gcj02")
     lon, lat = pt.x, pt.y
     if not _in_china(lon, lat):
         return pt
@@ -221,7 +221,7 @@ def cn_gcj02_to_wgs84(pt: Point) -> Point:
     >>> abs(pt_wgs.x - pt_gcj.x) > 0.001
     True
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="cn_gcj02_to_wgs84")
     lon, lat = pt.x, pt.y
     if not _in_china(lon, lat):
         return pt
@@ -270,7 +270,7 @@ def wgs84_to_cn_bd09(pt: Point) -> Point:
     >>> isinstance(pt_bd, Point)
     True
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="wgs84_to_cn_bd09")
     gcj = wgs84_to_cn_gcj02(pt)
     x, y = gcj.x, gcj.y
     z = math.sqrt(x * x + y * y) + 0.00002 * math.sin(y * _BD_PI)
@@ -313,7 +313,7 @@ def cn_bd09_to_wgs84(pt: Point) -> Point:
     >>> isinstance(pt_wgs, Point)
     True
     """
-    _validate_point(pt)
+    _validate_point(pt, func_name="cn_bd09_to_wgs84")
     x = pt.x - 0.0065
     y = pt.y - 0.006
     z = math.sqrt(x * x + y * y) - 0.00002 * math.sin(y * _BD_PI)
@@ -373,7 +373,7 @@ def ru_sk42_to_wgs84(pt: Point) -> Point:
                 "Install with: pip install pyproj",
             )
         )
-    _validate_point(pt)
+    _validate_point(pt, func_name="ru_sk42_to_wgs84")
     lon, lat = _SK42_TO_WGS84.transform(pt.x, pt.y)
     return Point(lon, lat)
 
@@ -423,7 +423,7 @@ def wgs84_to_ru_sk42(pt: Point) -> Point:
                 "Install with: pip install pyproj",
             )
         )
-    _validate_point(pt)
+    _validate_point(pt, func_name="wgs84_to_ru_sk42")
     lon, lat = _WGS84_TO_SK42.transform(pt.x, pt.y)
     return Point(lon, lat)
 
@@ -483,6 +483,9 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
     >>> abs(pt_back.x - pt.x) < 0.0001
     True
     """
+    _validate_point(pt, func_name="convert_crs")
+    _validate_string(from_crs, func_name="convert_crs")
+    _validate_string(to_crs, func_name="convert_crs")
     key = (from_crs.upper(), to_crs.upper())
     fn = _CRS_CONVERSIONS.get(key)
     if fn is None:
