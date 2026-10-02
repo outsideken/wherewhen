@@ -10,6 +10,15 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.2.8] — 2026-10-02
+
+Errors name the public function the user called, and every ``_validate_*``
+accepts ``func_name``.  **h3tools and jematools pass ``func_name`` to these
+validators, so they need wherewhen >= 0.2.8** (on 0.2.7 they raise
+``TypeError: … unexpected keyword argument 'func_name'``).
+
 ### Changed
 - **Errors name the public function the user called** (#4).  Messages used to
   name an internal validator (``⚠️ [validate_point] …`` from ``point_to_mgrs``)
