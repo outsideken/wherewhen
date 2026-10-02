@@ -479,6 +479,25 @@ def _distance_to_metres(distance: float, units: str, *, func_name: str) -> float
 
 # ── Point conversions ─────────────────────────────────────────────────────────
 
+def _latlon_to_point(latlon: tuple, *, func_name: str = "latlon_to_point") -> Point:
+    """Body of :func:`latlon_to_point`; errors name *func_name*."""
+    try:
+        latitude, longitude = latlon
+        lat_f, lon_f = float(latitude), float(longitude)
+    except (TypeError, ValueError) as exc:
+        # Same exception class as before this change (TypeError for e.g. None,
+        # ValueError for strings or bad pairs), so existing handlers still match.
+        raise type(exc)(
+            _warn(
+                func_name,
+                f"Expected a (latitude, longitude) pair of numbers, got {latlon!r}.",
+            )
+        ) from None
+    _validate_latitude(lat_f, func_name=func_name)
+    _validate_longitude(lon_f, func_name=func_name)
+    return Point(longitude, latitude)
+
+
 def latlon_to_point(latlon: tuple) -> Point:
     """
     Convert a ``(lat, lon)`` tuple to a Shapely ``Point(lon, lat)``.
@@ -509,19 +528,7 @@ def latlon_to_point(latlon: tuple) -> Point:
     >>> pt.x, pt.y
     (-0.1278, 51.5074)
     """
-    try:
-        latitude, longitude = latlon
-        lat_f, lon_f = float(latitude), float(longitude)
-    except (TypeError, ValueError):
-        raise TypeError(
-            _warn(
-                "latlon_to_point",
-                f"Expected a (latitude, longitude) pair of numbers, got {latlon!r}.",
-            )
-        ) from None
-    _validate_latitude(lat_f, func_name="latlon_to_point")
-    _validate_longitude(lon_f, func_name="latlon_to_point")
-    return Point(longitude, latitude)
+    return _latlon_to_point(latlon=latlon, func_name="latlon_to_point")
 
 
 def point_to_latlon(pt: Point) -> Tuple[float, float]:
@@ -913,6 +920,13 @@ def spherical_weighted_centroid(
     return Point(lon_deg, lat_deg)
 
 
+def _mgrs_to_point(mgrs_str: str, return_latlon: bool=False, *, func_name: str = "mgrs_to_point"):
+    """Body of :func:`mgrs_to_point`; errors name *func_name*."""
+    _validate_mgrs(mgrs_str, func_name=func_name)
+    lat_dd, lon_dd = _MGRS_INSTANCE.toLatLon(mgrs_str)
+    return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
+
+
 def mgrs_to_point(mgrs_str: str, return_latlon: bool = False):
     """
     Convert an MGRS coordinate string to a Shapely ``Point``.
@@ -950,8 +964,52 @@ def mgrs_to_point(mgrs_str: str, return_latlon: bool = False):
     >>> round(pt.y, 4), round(pt.x, 4)
     (51.5074, -0.1277)
     """
-    _validate_mgrs(mgrs_str, func_name="mgrs_to_point")
-    lat_dd, lon_dd = _MGRS_INSTANCE.toLatLon(mgrs_str)
+    return _mgrs_to_point(mgrs_str=mgrs_str, return_latlon=return_latlon, func_name="mgrs_to_point")
+
+
+def _dms_to_point(dms_str: str, return_latlon: bool=False, debug: bool=False, *, func_name: str = "dms_to_point") -> Point:
+    """Body of :func:`dms_to_point`; errors name *func_name*."""
+    _validate_dms(dms_str, func_name=func_name)
+    scrubbed = _scrub_dms(dms_str)
+
+    if debug:
+        print(f"[dms_to_point] scrubbed → {scrubbed!r}")
+
+    match = _DMS_PATTERN.search(scrubbed)
+    if not match:
+        raise ValueError(
+            _warn(
+                func_name,
+                f"Could not parse DMS pair. Input: {dms_str!r} "
+                f"(scrubbed: {scrubbed!r})",
+            )
+        )
+
+    g = match.groupdict()
+    if debug:
+        print(f"[dms_to_point] groups → {g}")
+
+    lat_deg = float(g["lat_deg"])
+    lat_min = float(g["lat_min"]) if g["lat_min"] else 0.0
+    lat_sec = float(g["lat_sec"]) if g["lat_sec"] else 0.0
+    lat_sign = 1.0 if g["lat_dir"].upper() == "N" else -1.0
+    lat_dd = lat_sign * (lat_deg + lat_min / 60.0 + lat_sec / 3600.0)
+
+    lon_deg = float(g["lon_deg"])
+    lon_min = float(g["lon_min"]) if g["lon_min"] else 0.0
+    lon_sec = float(g["lon_sec"]) if g["lon_sec"] else 0.0
+    lon_sign = 1.0 if g["lon_dir"].upper() == "E" else -1.0
+    lon_dd = lon_sign * (lon_deg + lon_min / 60.0 + lon_sec / 3600.0)
+
+    if not (-90 <= lat_dd <= 90):
+        raise ValueError(
+            _warn(func_name, f"Latitude out of range: {lat_dd}")
+        )
+    if not (-180 <= lon_dd <= 180):
+        raise ValueError(
+            _warn(func_name, f"Longitude out of range: {lon_dd}")
+        )
+
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
 
 
@@ -1009,45 +1067,34 @@ def dms_to_point(
     >>> round(pt.y, 4), round(pt.x, 4)
     (51.5072, -0.1278)
     """
-    _validate_dms(dms_str, func_name="dms_to_point")
-    scrubbed = _scrub_dms(dms_str)
+    return _dms_to_point(dms_str=dms_str, return_latlon=return_latlon, debug=debug, func_name="dms_to_point")
 
-    if debug:
-        print(f"[dms_to_point] scrubbed → {scrubbed!r}")
 
-    match = _DMS_PATTERN.search(scrubbed)
+def _ddm_to_point(ddm_str: str, return_latlon: bool=False, *, func_name: str = "ddm_to_point") -> Point:
+    """Body of :func:`ddm_to_point`; errors name *func_name*."""
+    _validate_ddm_pair(ddm_str, func_name=func_name)
+
+    match = _DDM_PATTERN.search(ddm_str)
     if not match:
         raise ValueError(
-            _warn(
-                "dms_to_point",
-                f"Could not parse DMS pair. Input: {dms_str!r} "
-                f"(scrubbed: {scrubbed!r})",
-            )
+            _warn(func_name, f"Could not parse DDM pair: {ddm_str!r}")
         )
 
     g = match.groupdict()
-    if debug:
-        print(f"[dms_to_point] groups → {g}")
+    lat_dd = (1.0 if g["lat_dir"].upper() == "N" else -1.0) * (
+        float(g["lat_deg"]) + float(g["lat_min"]) / 60.0
+    )
+    lon_dd = (1.0 if g["lon_dir"].upper() == "E" else -1.0) * (
+        float(g["lon_deg"]) + float(g["lon_min"]) / 60.0
+    )
 
-    lat_deg = float(g["lat_deg"])
-    lat_min = float(g["lat_min"]) if g["lat_min"] else 0.0
-    lat_sec = float(g["lat_sec"]) if g["lat_sec"] else 0.0
-    lat_sign = 1.0 if g["lat_dir"].upper() == "N" else -1.0
-    lat_dd = lat_sign * (lat_deg + lat_min / 60.0 + lat_sec / 3600.0)
-
-    lon_deg = float(g["lon_deg"])
-    lon_min = float(g["lon_min"]) if g["lon_min"] else 0.0
-    lon_sec = float(g["lon_sec"]) if g["lon_sec"] else 0.0
-    lon_sign = 1.0 if g["lon_dir"].upper() == "E" else -1.0
-    lon_dd = lon_sign * (lon_deg + lon_min / 60.0 + lon_sec / 3600.0)
-
-    if not (-90 <= lat_dd <= 90):
+    if not (-90.0 <= lat_dd <= 90.0):
         raise ValueError(
-            _warn("dms_to_point", f"Latitude out of range: {lat_dd}")
+            _warn(func_name, f"Latitude out of range: {lat_dd}")
         )
-    if not (-180 <= lon_dd <= 180):
+    if not (-180.0 <= lon_dd <= 180.0):
         raise ValueError(
-            _warn("dms_to_point", f"Longitude out of range: {lon_dd}")
+            _warn(func_name, f"Longitude out of range: {lon_dd}")
         )
 
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
@@ -1095,32 +1142,7 @@ def ddm_to_point(ddm_str: str, return_latlon: bool = False) -> Point:
     >>> round(pt.y, 4), round(pt.x, 4)
     (51.5067, -0.1283)
     """
-    _validate_ddm_pair(ddm_str, func_name="ddm_to_point")
-
-    match = _DDM_PATTERN.search(ddm_str)
-    if not match:
-        raise ValueError(
-            _warn("ddm_to_point", f"Could not parse DDM pair: {ddm_str!r}")
-        )
-
-    g = match.groupdict()
-    lat_dd = (1.0 if g["lat_dir"].upper() == "N" else -1.0) * (
-        float(g["lat_deg"]) + float(g["lat_min"]) / 60.0
-    )
-    lon_dd = (1.0 if g["lon_dir"].upper() == "E" else -1.0) * (
-        float(g["lon_deg"]) + float(g["lon_min"]) / 60.0
-    )
-
-    if not (-90.0 <= lat_dd <= 90.0):
-        raise ValueError(
-            _warn("ddm_to_point", f"Latitude out of range: {lat_dd}")
-        )
-    if not (-180.0 <= lon_dd <= 180.0):
-        raise ValueError(
-            _warn("ddm_to_point", f"Longitude out of range: {lon_dd}")
-        )
-
-    return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
+    return _ddm_to_point(ddm_str=ddm_str, return_latlon=return_latlon, func_name="ddm_to_point")
 
 
 # ── Unified coordinate dispatcher ─────────────────────────────────────────────
@@ -1180,19 +1202,19 @@ def coordinate_to_point(coord_input) -> Point:
     True
     """
     if isinstance(coord_input, (tuple, list)) and len(coord_input) == 2:
-        return latlon_to_point(coord_input)
+        return _latlon_to_point(latlon=coord_input, func_name="coordinate_to_point")
 
     if isinstance(coord_input, str):
         cleaned = coord_input.strip()
         if _MGRS_DETECT.match(cleaned.upper()):
-            return mgrs_to_point(cleaned)
+            return _mgrs_to_point(mgrs_str=cleaned, func_name="coordinate_to_point")
         if _DMS_SYMBOLS.search(cleaned) or (
             len(_NSEW.findall(cleaned)) == 2
             and re.search(r"\d", cleaned)
         ):
-            return dms_to_point(cleaned)
+            return _dms_to_point(dms_str=cleaned, func_name="coordinate_to_point")
         if _DDM_DETECT.search(cleaned):
-            return ddm_to_point(cleaned)
+            return _ddm_to_point(ddm_str=cleaned, func_name="coordinate_to_point")
         raise ValueError(
             _warn(
                 "coordinate_to_point",

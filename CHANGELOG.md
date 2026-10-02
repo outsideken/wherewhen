@@ -17,13 +17,19 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   ``segment_crosses_antimeridian``, ``[get_bounds]`` from ``get_polygon``).
   Every ``_validate_*`` now takes an optional ``func_name`` (default unchanged,
   so dependents keep working) and all 37 public functions pass their own name.
-  ``tests/test_error_names.py`` checks every exported function.
+  Delegation keeps the caller's name: ``coordinate_to_point`` → the coordinate
+  parsers, ``cn_bd09_to_wgs84`` → the GCJ-02 step, and ``convert_crs`` → every
+  converter go through private helpers that take ``func_name``.
+  ``tests/test_error_names.py`` checks every exported function, and lists every
+  public→public call that is allowed (with the reason) so new ones get reviewed.
 
 ### Fixed
-- Raw Python errors are now labelled: ``get_ratio`` / ``get_bounds`` /
-  ``get_polygon`` on a non-geometry (``AttributeError``), ``latlon_to_point`` on a
-  non-pair (unpacking ``ValueError``), ``epoch_to_datetime`` out of range
-  (``OverflowError``), ``convert_crs`` with a non-string CRS (``AttributeError``).
+- Raw Python errors are now labelled.  ``latlon_to_point`` on a non-pair and
+  ``epoch_to_datetime`` out of range keep their exception class (``ValueError`` /
+  ``TypeError``, ``OverflowError``) so existing handlers still match.
+  ``get_ratio`` / ``get_bounds`` / ``get_polygon`` on a non-geometry and
+  ``convert_crs`` with a non-string CRS now raise ``TypeError`` instead of an
+  accidental ``AttributeError``.
   ``convert_crs`` validates its own point instead of the inner converter's.
 - ``geometry_to_box`` on an empty geometry raised nothing and returned
   ``'BOX(nan nan,nan nan)'`` (or an empty point); it now raises ``ValueError``.

@@ -271,8 +271,9 @@ def epoch_to_datetime(value: Union[int, float]) -> datetime:
     seconds = value / 1000.0 if abs(value) >= _EPOCH_MS_THRESHOLD else value
     try:
         return datetime.fromtimestamp(seconds, tz=timezone.utc)
-    except (OverflowError, OSError, ValueError):
-        raise ValueError(
+    except (OverflowError, OSError, ValueError) as exc:
+        # Same exception class as before this change, so existing handlers still match.
+        raise type(exc)(
             _warn(
                 "epoch_to_datetime",
                 f"Timestamp {value!r} is outside the range a datetime can represent.",

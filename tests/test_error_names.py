@@ -112,6 +112,13 @@ MORE_BAD_CALLS = [
     ("get_lunar_data", lambda: temporal.get_lunar_data(Point(38.77, 48.53), "x")),
     ("convert_crs", lambda: crs.convert_crs(ORIGIN, "EPSG:4326", 123)),
     ("convert_crs", lambda: crs.convert_crs("not a point", "WGS84", "GCJ02")),
+    # Delegation (Cursor's review of #5): the error must name the function called.
+    ("coordinate_to_point", lambda: geometry.coordinate_to_point((95.0, 0.0))),
+    ("coordinate_to_point", lambda: geometry.coordinate_to_point(("a", "b"))),
+    ("coordinate_to_point", lambda: geometry.coordinate_to_point("1C")),
+    ("coordinate_to_point", lambda: geometry.coordinate_to_point("99XXX0000000000")),
+    ("cn_bd09_to_wgs84", lambda: crs.cn_bd09_to_wgs84(Point(-180, -90))),
+    ("convert_crs", lambda: crs.convert_crs(Point(-180, -90), "BD09", "WGS84")),
 ]
 
 
@@ -127,3 +134,41 @@ def test_later_argument_errors_name_the_function_called(name, call):
 def test_latlon_to_point_still_accepts_numeric_strings_and_lists():
     assert geometry.latlon_to_point(("51.5", "-0.12")).equals(Point(-0.12, 51.5))
     assert geometry.latlon_to_point([51.5, -0.12]).equals(Point(-0.12, 51.5))
+
+
+# Public functions may call other public functions only where the inner call
+# cannot fail with its own label: the inputs were already validated under the
+# caller's name, or are values the caller just computed.  Anything else must go
+# through a private helper that takes ``func_name``.  Adding a pair here is a
+# deliberate, reviewed decision.
+ALLOWED_PUBLIC_CALLS = {
+    ("point_distance_km", "point_distance"): "both points validated as point_distance_km; units fixed to 'km'",
+    ("point_at_distance", "normalize_latlon"): "normalises the destination it just computed (floats, default range)",
+    ("spherical_weighted_centroid", "normalize_latlon"): "normalises the centroid it just computed",
+    ("convert_to_datetime", "is_dt_naive"): "called on the datetime it just produced",
+    ("ensure_utc", "is_dt_naive"): "dt validated as ensure_utc first",
+    ("shift_tz_by_name", "ensure_utc"): "dt validated as shift_tz_by_name first",
+    ("point_to_tz_offset", "ensure_utc"): "eval_dt validated as point_to_tz_offset first",
+}
+
+
+def test_public_to_public_calls_are_reviewed():
+    import ast
+    import os
+
+    public = _public_functions()
+    found = set()
+    pkg = os.path.dirname(geometry.__file__)
+    for module in ("geometry", "temporal", "crs"):
+        with open(os.path.join(pkg, f"{module}.py"), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        for fn in tree.body:
+            if isinstance(fn, ast.FunctionDef) and fn.name in public:
+                for node in ast.walk(fn):
+                    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                            and node.func.id in public and node.func.id != fn.name):
+                        found.add((fn.name, node.func.id))
+    assert found == set(ALLOWED_PUBLIC_CALLS), (
+        f"unreviewed: {sorted(found - set(ALLOWED_PUBLIC_CALLS))}; "
+        f"stale: {sorted(set(ALLOWED_PUBLIC_CALLS) - found)}"
+    )

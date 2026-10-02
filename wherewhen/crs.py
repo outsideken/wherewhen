@@ -136,6 +136,16 @@ def _in_china(lon: float, lat: float) -> bool:
 
 # ── Chinese coordinate conversions ────────────────────────────────────────────
 
+def _wgs84_to_cn_gcj02(pt: Point, *, func_name: str = "wgs84_to_cn_gcj02") -> Point:
+    """Body of :func:`wgs84_to_cn_gcj02`; errors name *func_name*."""
+    _validate_point(pt, func_name=func_name)
+    lon, lat = pt.x, pt.y
+    if not _in_china(lon, lat):
+        return pt
+    dlon, dlat = _gcj02_offset(lon - 105.0, lat - 35.0)
+    return Point(lon + dlon, lat + dlat)
+
+
 def wgs84_to_cn_gcj02(pt: Point) -> Point:
     """
     Convert a WGS-84 point to GCJ-02 (China national standard / Mars Coordinates).
@@ -176,12 +186,21 @@ def wgs84_to_cn_gcj02(pt: Point) -> Point:
     >>> abs(pt_gcj.x - pt_wgs.x) > 0.001   # offset applied
     True
     """
-    _validate_point(pt, func_name="wgs84_to_cn_gcj02")
+    return _wgs84_to_cn_gcj02(pt=pt, func_name="wgs84_to_cn_gcj02")
+
+
+def _cn_gcj02_to_wgs84(pt: Point, *, func_name: str = "cn_gcj02_to_wgs84") -> Point:
+    """Body of :func:`cn_gcj02_to_wgs84`; errors name *func_name*."""
+    _validate_point(pt, func_name=func_name)
     lon, lat = pt.x, pt.y
     if not _in_china(lon, lat):
         return pt
-    dlon, dlat = _gcj02_offset(lon - 105.0, lat - 35.0)
-    return Point(lon + dlon, lat + dlat)
+    wgs_lon, wgs_lat = lon, lat
+    for _ in range(5):
+        dlon, dlat = _gcj02_offset(wgs_lon - 105.0, wgs_lat - 35.0)
+        wgs_lon = lon - dlon
+        wgs_lat = lat - dlat
+    return Point(wgs_lon, wgs_lat)
 
 
 def cn_gcj02_to_wgs84(pt: Point) -> Point:
@@ -221,16 +240,17 @@ def cn_gcj02_to_wgs84(pt: Point) -> Point:
     >>> abs(pt_wgs.x - pt_gcj.x) > 0.001
     True
     """
-    _validate_point(pt, func_name="cn_gcj02_to_wgs84")
-    lon, lat = pt.x, pt.y
-    if not _in_china(lon, lat):
-        return pt
-    wgs_lon, wgs_lat = lon, lat
-    for _ in range(5):
-        dlon, dlat = _gcj02_offset(wgs_lon - 105.0, wgs_lat - 35.0)
-        wgs_lon = lon - dlon
-        wgs_lat = lat - dlat
-    return Point(wgs_lon, wgs_lat)
+    return _cn_gcj02_to_wgs84(pt=pt, func_name="cn_gcj02_to_wgs84")
+
+
+def _wgs84_to_cn_bd09(pt: Point, *, func_name: str = "wgs84_to_cn_bd09") -> Point:
+    """Body of :func:`wgs84_to_cn_bd09`; errors name *func_name*."""
+    _validate_point(pt, func_name=func_name)
+    gcj = _wgs84_to_cn_gcj02(pt=pt, func_name=func_name)
+    x, y = gcj.x, gcj.y
+    z = math.sqrt(x * x + y * y) + 0.00002 * math.sin(y * _BD_PI)
+    theta = math.atan2(y, x) + 0.000003 * math.cos(x * _BD_PI)
+    return Point(z * math.cos(theta) + 0.0065, z * math.sin(theta) + 0.006)
 
 
 def wgs84_to_cn_bd09(pt: Point) -> Point:
@@ -270,12 +290,18 @@ def wgs84_to_cn_bd09(pt: Point) -> Point:
     >>> isinstance(pt_bd, Point)
     True
     """
-    _validate_point(pt, func_name="wgs84_to_cn_bd09")
-    gcj = wgs84_to_cn_gcj02(pt)
-    x, y = gcj.x, gcj.y
-    z = math.sqrt(x * x + y * y) + 0.00002 * math.sin(y * _BD_PI)
-    theta = math.atan2(y, x) + 0.000003 * math.cos(x * _BD_PI)
-    return Point(z * math.cos(theta) + 0.0065, z * math.sin(theta) + 0.006)
+    return _wgs84_to_cn_bd09(pt=pt, func_name="wgs84_to_cn_bd09")
+
+
+def _cn_bd09_to_wgs84(pt: Point, *, func_name: str = "cn_bd09_to_wgs84") -> Point:
+    """Body of :func:`cn_bd09_to_wgs84`; errors name *func_name*."""
+    _validate_point(pt, func_name=func_name)
+    x = pt.x - 0.0065
+    y = pt.y - 0.006
+    z = math.sqrt(x * x + y * y) - 0.00002 * math.sin(y * _BD_PI)
+    theta = math.atan2(y, x) - 0.000003 * math.cos(x * _BD_PI)
+    gcj = Point(z * math.cos(theta), z * math.sin(theta))
+    return _cn_gcj02_to_wgs84(pt=gcj, func_name=func_name)
 
 
 def cn_bd09_to_wgs84(pt: Point) -> Point:
@@ -313,16 +339,25 @@ def cn_bd09_to_wgs84(pt: Point) -> Point:
     >>> isinstance(pt_wgs, Point)
     True
     """
-    _validate_point(pt, func_name="cn_bd09_to_wgs84")
-    x = pt.x - 0.0065
-    y = pt.y - 0.006
-    z = math.sqrt(x * x + y * y) - 0.00002 * math.sin(y * _BD_PI)
-    theta = math.atan2(y, x) - 0.000003 * math.cos(x * _BD_PI)
-    gcj = Point(z * math.cos(theta), z * math.sin(theta))
-    return cn_gcj02_to_wgs84(gcj)
+    return _cn_bd09_to_wgs84(pt=pt, func_name="cn_bd09_to_wgs84")
 
 
 # ── Russian coordinate conversions ────────────────────────────────────────────
+
+def _ru_sk42_to_wgs84(pt: Point, *, func_name: str = "ru_sk42_to_wgs84") -> Point:
+    """Body of :func:`ru_sk42_to_wgs84`; errors name *func_name*."""
+    if not _PYPROJ_AVAILABLE:
+        raise ImportError(
+            _skip(
+                func_name,
+                "pyproj is required for SK-42 conversions. "
+                "Install with: pip install pyproj",
+            )
+        )
+    _validate_point(pt, func_name=func_name)
+    lon, lat = _SK42_TO_WGS84.transform(pt.x, pt.y)
+    return Point(lon, lat)
+
 
 def ru_sk42_to_wgs84(pt: Point) -> Point:
     """
@@ -365,16 +400,21 @@ def ru_sk42_to_wgs84(pt: Point) -> Point:
     >>> isinstance(pt_wgs, Point)
     True
     """
+    return _ru_sk42_to_wgs84(pt=pt, func_name="ru_sk42_to_wgs84")
+
+
+def _wgs84_to_ru_sk42(pt: Point, *, func_name: str = "wgs84_to_ru_sk42") -> Point:
+    """Body of :func:`wgs84_to_ru_sk42`; errors name *func_name*."""
     if not _PYPROJ_AVAILABLE:
         raise ImportError(
             _skip(
-                "ru_sk42_to_wgs84",
+                func_name,
                 "pyproj is required for SK-42 conversions. "
                 "Install with: pip install pyproj",
             )
         )
-    _validate_point(pt, func_name="ru_sk42_to_wgs84")
-    lon, lat = _SK42_TO_WGS84.transform(pt.x, pt.y)
+    _validate_point(pt, func_name=func_name)
+    lon, lat = _WGS84_TO_SK42.transform(pt.x, pt.y)
     return Point(lon, lat)
 
 
@@ -415,28 +455,18 @@ def wgs84_to_ru_sk42(pt: Point) -> Point:
     >>> isinstance(pt_sk42, Point)
     True
     """
-    if not _PYPROJ_AVAILABLE:
-        raise ImportError(
-            _skip(
-                "wgs84_to_ru_sk42",
-                "pyproj is required for SK-42 conversions. "
-                "Install with: pip install pyproj",
-            )
-        )
-    _validate_point(pt, func_name="wgs84_to_ru_sk42")
-    lon, lat = _WGS84_TO_SK42.transform(pt.x, pt.y)
-    return Point(lon, lat)
+    return _wgs84_to_ru_sk42(pt=pt, func_name="wgs84_to_ru_sk42")
 
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 _CRS_CONVERSIONS: Dict[Tuple[str, str], object] = {
-    ("WGS84", "GCJ02"): wgs84_to_cn_gcj02,
-    ("GCJ02", "WGS84"): cn_gcj02_to_wgs84,
-    ("WGS84", "BD09"):  wgs84_to_cn_bd09,
-    ("BD09",  "WGS84"): cn_bd09_to_wgs84,
-    ("SK42",  "WGS84"): ru_sk42_to_wgs84,
-    ("WGS84", "SK42"):  wgs84_to_ru_sk42,
+    ("WGS84", "GCJ02"): _wgs84_to_cn_gcj02,
+    ("GCJ02", "WGS84"): _cn_gcj02_to_wgs84,
+    ("WGS84", "BD09"):  _wgs84_to_cn_bd09,
+    ("BD09",  "WGS84"): _cn_bd09_to_wgs84,
+    ("SK42",  "WGS84"): _ru_sk42_to_wgs84,
+    ("WGS84", "SK42"):  _wgs84_to_ru_sk42,
 }
 
 _SUPPORTED_PAIRS = ", ".join(f"{a}→{b}" for a, b in _CRS_CONVERSIONS)
@@ -496,4 +526,4 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
                 f"Supported pairs: {_SUPPORTED_PAIRS}",
             )
         )
-    return fn(pt)
+    return fn(pt=pt, func_name="convert_crs")
