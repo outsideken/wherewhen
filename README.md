@@ -15,8 +15,8 @@ Successor to **`geocore`** (renamed in Phase 1, 2026).  Versions
 independently of every other package — see [CHANGELOG.md](CHANGELOG.md) and
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
-**Status:** alpha foundation library (`0.2.x`).  Stable enough for toolkit
-dependents that pin `wherewhen>=0.2.0` / `>=0.2.8`; not a GIS product.
+**Status:** alpha foundation library.  Stable enough for the toolkit
+packages that depend on it; not a GIS product.
 
 ---
 
@@ -189,19 +189,10 @@ from wherewhen.crs import (
 
 ## Compatibility
 
-This package declares **no toolkit dependencies**.  Downstream floors (as of
-the last stack check):
-
-| Consumer | Declares |
-|---|---|
-| jematools | `wherewhen>=0.2.8` |
-| h3tools | `wherewhen>=0.2.8` |
-| viztools | `wherewhen>=0.2.0` |
-| tabtools | `wherewhen>=0.2.0` |
-
-See [COMPATIBILITY.md](COMPATIBILITY.md) for the release checklist and how to
-read floors.  A fuller multi-package test matrix may also exist in a sibling
-toolkit workspace; this repo stays self-contained for GitHub clones.
+This package declares **no toolkit dependencies**.  The packages that use it
+(jematools, h3tools, viztools, tabtools) each declare their minimum wherewhen
+version in their own `pyproject.toml`.  See [COMPATIBILITY.md](COMPATIBILITY.md)
+for where each version fact lives and the release checklist.
 
 ---
 
