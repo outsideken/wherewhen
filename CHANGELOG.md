@@ -10,6 +10,13 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Fixed
+- A fresh install of wherewhen by itself could not be imported:
+  ``ModuleNotFoundError: No module named 'packaging'`` from ``mgrs``, which
+  imports ``packaging`` without declaring it.  wherewhen now declares
+  ``packaging``, and a new CI job installs wherewhen alone into a fresh venv and
+  imports every module (#13).
+
 ### Added
 - ``named_errors`` in ``wherewhen._messages``: the one copy of the decorator
   that points a toolkit error's ``[label]`` at the public function the user

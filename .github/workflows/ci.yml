@@ -41,6 +41,26 @@ jobs:
           print("All notebooks valid.")
           PY
 
+  bare-install:
+    # pytest, matplotlib and geopandas all pull in extra packages, which once hid
+    # a missing runtime dependency (#13). Install wherewhen alone into a fresh
+    # venv (only pip in it) and import every module.
+    name: bare install imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install wherewhen alone and import every module
+        run: |
+          python -m venv /tmp/bare
+          /tmp/bare/bin/python -m pip install .
+          cd /tmp
+          /tmp/bare/bin/python -c "import wherewhen, wherewhen.crs, wherewhen.geometry, wherewhen.temporal, wherewhen._messages, wherewhen._validators; print('imports ok', wherewhen.__version__)"
+
   test-py39:
     # jematools imports wherewhen inside JEMA, which runs Python 3.9.
     name: test (Python 3.9, JEMA runtime)
