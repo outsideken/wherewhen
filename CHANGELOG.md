@@ -10,6 +10,10 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.2.10] — 2026-10-03
+
 ### Fixed
 - A fresh install of wherewhen by itself could not be imported:
   ``ModuleNotFoundError: No module named 'packaging'`` from ``mgrs``, which
