@@ -1,9 +1,9 @@
 # wherewhen
 
-![Version](https://img.shields.io/badge/version-0.2.8-blue)
+![Version](https://img.shields.io/badge/version-0.2.9-blue)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-240%20passing-brightgreen)
 
 Shared **where** and **when** primitives for the JEMA toolkit ecosystem.
 
@@ -16,7 +16,7 @@ independently of every other package — see [CHANGELOG.md](CHANGELOG.md) and
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
 **Status:** alpha foundation library (`0.2.x`).  Stable enough for toolkit
-dependents that pin `wherewhen>=0.2.0` / `>=0.2.6`; not a GIS product.
+dependents that pin `wherewhen>=0.2.0` / `>=0.2.8`; not a GIS product.
 
 ---
 
@@ -194,8 +194,8 @@ the last stack check):
 
 | Consumer | Declares |
 |---|---|
-| jematools | `wherewhen>=0.2.0` |
-| h3tools | `wherewhen>=0.2.6` |
+| jematools | `wherewhen>=0.2.8` |
+| h3tools | `wherewhen>=0.2.8` |
 | viztools | `wherewhen>=0.2.0` |
 | tabtools | `wherewhen>=0.2.0` |
 
