@@ -16,7 +16,7 @@ independently of every other package — see [CHANGELOG.md](CHANGELOG.md) and
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
 **Status:** alpha foundation library (`0.2.x`).  Stable enough for toolkit
-dependents that pin `wherewhen>=0.2.0` / `>=0.2.6`; not a GIS product.
+dependents that pin `wherewhen>=0.2.0` / `>=0.2.8`; not a GIS product.
 
 ---
 
@@ -194,8 +194,8 @@ the last stack check):
 
 | Consumer | Declares |
 |---|---|
-| jematools | `wherewhen>=0.2.0` |
-| h3tools | `wherewhen>=0.2.6` |
+| jematools | `wherewhen>=0.2.8` |
+| h3tools | `wherewhen>=0.2.8` |
 | viztools | `wherewhen>=0.2.0` |
 | tabtools | `wherewhen>=0.2.0` |
 
