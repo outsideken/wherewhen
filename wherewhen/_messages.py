@@ -5,9 +5,9 @@ Shared notification helpers for errors, warnings, and status messages.
 
 Emoji prefix convention (aligned with jematools):
 
-⚠️  validation error or invalid input
+⚠️  every raised error: invalid input, or a missing optional package
 ℹ️  informational notice (non-fatal)
-❌  operation skipped or not supported
+❌  printed notice: an item was skipped (never used for raised errors)
 ✏️  user input / configuration note
 ✅  success (verbose logging)
 

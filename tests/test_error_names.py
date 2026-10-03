@@ -209,3 +209,55 @@ def test_latlon_to_point_rejects_strings_that_would_unpack_as_pairs():
     for bad in ("12", "45", b"12", bytearray(b"12"), memoryview(b"12")):
         with pytest.raises(TypeError, match=r"\[latlon_to_point\]"):
             geometry.latlon_to_point(bad)
+
+
+# A missing optional package is an error like any other: it starts with ⚠️ and
+# names the function called.  ❌ is only for printed "skipped" notices.
+MISSING_PACKAGE_CASES = [
+    ("pyproj", "from wherewhen.crs import ru_sk42_to_wgs84 as f; f(Point(30.0, 50.0))", "ru_sk42_to_wgs84"),
+    ("pyproj", "from wherewhen.crs import wgs84_to_ru_sk42 as f; f(Point(30.0, 50.0))", "wgs84_to_ru_sk42"),
+    ("astral", "from wherewhen.temporal import get_solar_data as f; f(Point(30.0, 50.0), WHEN)", "get_solar_data"),
+    ("timezonefinder", "from wherewhen.temporal import get_lunar_data as f; f(Point(30.0, 50.0), WHEN)", "get_lunar_data"),
+    ("timezonefinder", "from wherewhen.temporal import point_to_tz_offset as f; f(Point(30.0, 50.0), WHEN)", "point_to_tz_offset"),
+]
+
+
+@pytest.mark.parametrize("package, call, name", MISSING_PACKAGE_CASES, ids=[c[2] for c in MISSING_PACKAGE_CASES])
+def test_missing_package_errors_start_with_warning(package, call, name):
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        f"sys.modules[{package!r}] = None  # make the import fail\n"
+        "from datetime import datetime\n"
+        "from shapely.geometry import Point\n"
+        "WHEN = datetime(2024, 6, 1, 12)\n"
+        "try:\n"
+        f"    {call}\n"
+        "except ImportError as exc:\n"
+        "    print('MSG', exc)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    msg = result.stdout.strip().splitlines()[-1]
+    assert msg.startswith(f"MSG ⚠️ [{name}] "), msg
+    assert package in msg, msg
+
+
+def test_no_raised_error_uses_the_skip_prefix():
+    import ast
+    import pathlib
+
+    import wherewhen
+
+    offenders = []
+    for path in sorted(pathlib.Path(wherewhen.__file__).parent.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Raise) and node.exc is not None:
+                for call in ast.walk(node.exc):
+                    if isinstance(call, ast.Call) and getattr(call.func, "id", None) in ("skip", "_skip"):
+                        offenders.append(f"{path.name}:{node.lineno}")
+                    if isinstance(call, ast.Constant) and isinstance(call.value, str) and call.value.startswith("❌"):
+                        offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == []
