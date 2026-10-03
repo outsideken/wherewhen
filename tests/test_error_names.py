@@ -261,3 +261,51 @@ def test_no_raised_error_uses_the_skip_prefix():
                     if isinstance(call, ast.Constant) and isinstance(call.value, str) and call.value.startswith("❌"):
                         offenders.append(f"{path.name}:{node.lineno}")
     assert offenders == []
+
+
+def test_relabelling_keeps_the_exception_class_and_object():
+    from wherewhen._messages import named_errors, warn
+
+    errors = [ValueError(warn("inner", "v")), TypeError(warn("inner", "t")),
+              ImportError("❌ [inner] needs a package"), KeyError(warn("inner", "k"))]
+    for original in errors:
+        @named_errors
+        def outer():
+            raise original
+
+        with pytest.raises(type(original)) as excinfo:
+            outer()
+        assert excinfo.value is original
+        assert "[outer]" in str(excinfo.value) and "[inner]" not in str(excinfo.value)
+
+
+def test_unlabelled_errors_pass_through_unchanged():
+    from wherewhen._messages import named_errors
+
+    @named_errors
+    def outer():
+        raise ZeroDivisionError("division by zero")
+
+    with pytest.raises(ZeroDivisionError, match=r"^division by zero$"):
+        outer()
+
+
+def test_lru_cache_helpers_stay_reachable():
+    # h3tools and jematools copy cache_info/cache_clear onto the wrapper.
+    # viztools' copy did not. The shared decorator keeps them.
+    import functools
+
+    from wherewhen._messages import named_errors
+
+    @named_errors
+    @functools.lru_cache
+    def cached(n):
+        return n
+
+    assert cached(1) == 1
+    assert cached.cache_info().misses == 1
+    assert cached.cache_info().hits == 0
+    assert cached(1) == 1
+    assert cached.cache_info().hits == 1
+    cached.cache_clear()
+    assert cached.cache_info().misses == 0

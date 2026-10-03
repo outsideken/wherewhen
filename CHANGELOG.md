@@ -10,6 +10,12 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Added
+- ``named_errors`` in ``wherewhen._messages``: the one copy of the decorator
+  that points a toolkit error's ``[label]`` at the public function the user
+  called. h3tools, jematools and viztools still carry their own copies until
+  they switch (#10).
+
 ---
 
 ## [0.2.9] — 2026-10-03
