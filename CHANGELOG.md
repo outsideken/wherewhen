@@ -10,6 +10,14 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Changed
+- A missing optional package (pyproj, astral, timezonefinder) now raises
+  ``ImportError: ⚠️ [<function>] …`` instead of ``❌ [<function>] …``, so every
+  error the toolkit raises starts with ⚠️. ❌ is kept for printed "skipped"
+  notices. Affects ``ru_sk42_to_wgs84``, ``wgs84_to_ru_sk42``,
+  ``get_solar_data``, ``get_lunar_data``, ``point_to_tz_offset`` and
+  ``shift_tz_by_name`` (no zoneinfo). Exception class and text are unchanged.
+
 ---
 
 ## [0.2.8] — 2026-10-02

@@ -52,7 +52,7 @@ from typing import Dict, Tuple
 
 from shapely.geometry import Point
 
-from wherewhen._messages import skip as _skip, warn as _warn
+from wherewhen._messages import warn as _warn
 from wherewhen._validators import _validate_point, _validate_string
 
 # ── Optional-dependency guard ─────────────────────────────────────────────────
@@ -348,7 +348,7 @@ def _ru_sk42_to_wgs84(pt: Point, *, func_name: str = "ru_sk42_to_wgs84") -> Poin
     """Body of :func:`ru_sk42_to_wgs84`; errors name *func_name*."""
     if not _PYPROJ_AVAILABLE:
         raise ImportError(
-            _skip(
+            _warn(
                 func_name,
                 "pyproj is required for SK-42 conversions. "
                 "Install with: pip install pyproj",
@@ -407,7 +407,7 @@ def _wgs84_to_ru_sk42(pt: Point, *, func_name: str = "wgs84_to_ru_sk42") -> Poin
     """Body of :func:`wgs84_to_ru_sk42`; errors name *func_name*."""
     if not _PYPROJ_AVAILABLE:
         raise ImportError(
-            _skip(
+            _warn(
                 func_name,
                 "pyproj is required for SK-42 conversions. "
                 "Install with: pip install pyproj",

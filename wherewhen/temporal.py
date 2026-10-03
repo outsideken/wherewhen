@@ -64,7 +64,7 @@ from typing import Dict, Optional, Tuple, Union
 from dateutil import parser as dateutil_parser
 from shapely.geometry import Point
 
-from wherewhen._messages import skip as _skip, warn as _warn
+from wherewhen._messages import warn as _warn
 from wherewhen._validators import (
     _validate_datetime,
     _validate_point,
@@ -187,7 +187,7 @@ def _require_astro_deps(caller: str) -> None:
     """Raise ImportError, naming *caller*, if astral or timezonefinder is missing."""
     if not _ASTRAL_AVAILABLE:
         raise ImportError(
-            _skip(
+            _warn(
                 caller,
                 "astral is required for solar/lunar calculations. "
                 "Install with: pip install astral",
@@ -195,7 +195,7 @@ def _require_astro_deps(caller: str) -> None:
         )
     if not _TZ_AVAILABLE:
         raise ImportError(
-            _skip(
+            _warn(
                 caller,
                 "timezonefinder is required to find the location's local timezone. "
                 "Install with: pip install timezonefinder",
@@ -573,7 +573,7 @@ def shift_tz_by_name(dt: datetime, tz_name: str) -> datetime:
     """
     if not _ZONEINFO_AVAILABLE:
         raise ImportError(
-            _skip(
+            _warn(
                 "shift_tz_by_name",
                 "zoneinfo is required (standard library, Python 3.9+).",
             )
@@ -649,7 +649,7 @@ def point_to_tz_offset(pt: Point, eval_dt: datetime) -> Tuple[str, float]:
     """
     if not _TZ_AVAILABLE:
         raise ImportError(
-            _skip(
+            _warn(
                 "point_to_tz_offset",
                 "timezonefinder is required. "
                 "Install with: pip install timezonefinder",
