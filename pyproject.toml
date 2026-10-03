@@ -24,6 +24,9 @@ classifiers = [
 dependencies = [
     "shapely",
     "mgrs",
+    # mgrs imports packaging but does not declare it (mgrs 1.5.4); without this
+    # line a fresh wherewhen-only install cannot be imported (#13).
+    "packaging",
     "python-dateutil",
     "astral",
     "ephem",
