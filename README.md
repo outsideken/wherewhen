@@ -1,9 +1,9 @@
 # wherewhen
 
-![Version](https://img.shields.io/badge/version-0.2.8-blue)
+![Version](https://img.shields.io/badge/version-0.2.9-blue)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-240%20passing-brightgreen)
 
 Shared **where** and **when** primitives for the JEMA toolkit ecosystem.
 

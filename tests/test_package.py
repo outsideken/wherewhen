@@ -8,9 +8,16 @@ import pytest
 
 class TestPackage:
 
-    def test_version_string(self):
+    def test_version_matches_pyproject(self):
+        # One source of truth: _version.py and pyproject.toml must agree, so a
+        # release bumps the version in those two places and nowhere else.
+        import re
+        from pathlib import Path
+
         import wherewhen
-        assert wherewhen.__version__ == "0.2.8"
+        pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        declared = re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
+        assert wherewhen.__version__ == declared
 
     def test_messages_warn_format(self):
         from wherewhen._messages import warn

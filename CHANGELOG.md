@@ -10,6 +10,10 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.2.9] — 2026-10-03
+
 ### Changed
 - A missing optional package (pyproj, astral, timezonefinder) now raises
   ``ImportError: ⚠️ [<function>] …`` instead of ``❌ [<function>] …``, so every

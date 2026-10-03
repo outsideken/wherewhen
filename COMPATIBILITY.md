@@ -1,13 +1,13 @@
 # wherewhen compatibility
 
 `wherewhen` versions **independently** of jematools, h3tools, viztools, and
-tabtools.  Dependents declare a minimum floor (e.g. `wherewhen>=0.2.6`).
+tabtools.  Dependents declare a minimum floor (e.g. `wherewhen>=0.2.8`).
 
 ## This package
 
 | Item | Value |
 |---|---|
-| **Current version** | `0.2.8` |
+| **Current version** | `0.2.9` |
 | **Toolkit dependencies** | none |
 | **Python** | `>=3.9` |
 
@@ -15,10 +15,10 @@ tabtools.  Dependents declare a minimum floor (e.g. `wherewhen>=0.2.6`).
 
 | Package | Version |
 |---|---|
-| wherewhen | **0.2.6** |
-| viztools | **0.1.3** (`wherewhen>=0.2.0`) |
-| h3tools | **0.8.0b1** (`wherewhen>=0.2.6`) |
-| jematools | **0.6.0b1** (`wherewhen>=0.2.0`) |
+| wherewhen | **0.2.9** |
+| viztools | **0.1.4** (`wherewhen>=0.2.0`) |
+| h3tools | **0.9.0b2** (`wherewhen>=0.2.8`) |
+| jematools | **0.6.0b3** (`wherewhen>=0.2.8`) |
 
 See the toolkit workspace `COMPATIBILITY.md` for the full dated matrix.
 
