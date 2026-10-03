@@ -16,7 +16,9 @@ Each fact lives in one place:
 1. Bump `wherewhen/_version.py` and the matching `version` in `pyproject.toml`.
    `tests/test_package.py` checks that they agree.
 2. Move the `[Unreleased]` section of `CHANGELOG.md` to the new version, dated.
-3. Sync the README version and test-count badges (until wherewhen#9 retires them).
+3. Update the hand-typed versions wherewhen#9 hasn't retired yet: the README
+   version and test-count badges, and the title of
+   `notebooks/01 CRS China and Russia.ipynb` (edit with nbformat).
 4. After the release PR merges: tag `wherewhen-vX.Y.Z`.
 5. Once the stack is verified, update the toolkit matrix in outsideken/geo-toolkit
    (current-freeze table and a dated row).

@@ -15,7 +15,7 @@ Successor to **`geocore`** (renamed in Phase 1, 2026).  Versions
 independently of every other package — see [CHANGELOG.md](CHANGELOG.md) and
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
-**Status:** alpha foundation library (`0.2.x`).  Stable enough for the toolkit
+**Status:** alpha foundation library.  Stable enough for the toolkit
 packages that depend on it; not a GIS product.
 
 ---
