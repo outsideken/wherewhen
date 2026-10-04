@@ -13,14 +13,12 @@ Each fact lives in one place:
 
 ## Release checklist
 
-1. Bump `wherewhen/_version.py` and the matching `version` in `pyproject.toml`.
-   `tests/test_package.py` checks that they agree.
+1. Bump `wherewhen/_version.py`, the only place the version is typed
+   (`pyproject.toml` reads it; `tests/test_one_version.py` fails if a copy
+   appears elsewhere).
 2. Move the `[Unreleased]` section of `CHANGELOG.md` to the new version, dated.
-3. Update the hand-typed versions wherewhen#9 hasn't retired yet: the README
-   version and test-count badges, and the title of
-   `notebooks/01 CRS China and Russia.ipynb` (edit with nbformat).
-4. After the release PR merges: tag `wherewhen-vX.Y.Z`.
-5. Once the stack is verified, update the toolkit matrix in outsideken/geo-toolkit
+3. After the release PR merges: tag `wherewhen-vX.Y.Z`.
+4. Once the stack is verified, update the toolkit matrix in outsideken/geo-toolkit
    (current-freeze table and a dated row).
-6. If new public APIs are added, bump a dependant's floor only when it starts
+5. If new public APIs are added, bump a dependant's floor only when it starts
    calling them, then re-test the stack.

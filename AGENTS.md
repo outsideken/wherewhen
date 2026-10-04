@@ -29,8 +29,8 @@ h3tools, jematools and viztools all depend on it, so a change here reaches all t
 - **Downstream effect.** h3-tools and jema-tools CI install wherewhen from GitHub
   `main`. Before merging, run the dependants' suites against your branch, e.g. from
   `../jema-tools`: `PYTHONPATH=../wherewhen ../.venv/bin/python -m pytest -q`.
-- **Releases** follow the checklist in `COMPATIBILITY.md` (version in `_version.py` and
-  `pyproject.toml`, `CHANGELOG.md`, README badges).
+- **Releases** follow the checklist in `COMPATIBILITY.md`: the version is typed only in
+  `_version.py` (`pyproject.toml` reads it), plus the `CHANGELOG.md` heading.
 
 ## Testing
 

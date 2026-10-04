@@ -1,9 +1,8 @@
 # wherewhen
 
-![Version](https://img.shields.io/badge/version-0.2.10-blue)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-243%20passing-brightgreen)
+![CI](https://github.com/outsideken/wherewhen/actions/workflows/ci.yml/badge.svg)
 
 Shared **where** and **when** primitives for the JEMA toolkit ecosystem.
 
@@ -258,9 +257,12 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 
 ## Versioning
 
-- Runtime version: `wherewhen.__version__` (from `_version.py`)
-- Packaging version: `pyproject.toml`
-- Bump both together on release; tag `wherewhen-vX.Y.Z` in git
+- The version is typed in one place, `wherewhen/_version.py`. Both
+  `wherewhen.__version__` and the packaging metadata come from it
+  (`pyproject.toml` reads it; `tests/test_one_version.py` fails if a copy
+  appears elsewhere).
+- On release, bump `_version.py` and the CHANGELOG heading, then tag
+  `wherewhen-vX.Y.Z` in git
 - A wherewhen minor release does **not** require a dependent release unless
   that package starts calling new APIs.  See [COMPATIBILITY.md](COMPATIBILITY.md).
 

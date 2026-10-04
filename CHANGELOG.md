@@ -10,6 +10,13 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Changed
+- The version is typed in one place, ``wherewhen/_version.py`` (#9).
+  ``pyproject.toml`` reads it (``dynamic = ["version"]``); the README's version
+  and test-count badges are replaced by the CI badge; notebook 01's title no
+  longer states a version. ``tests/test_one_version.py`` replaces the check that
+  ``pyproject.toml`` and ``_version.py`` agree, and fails if a copy comes back.
+
 ---
 
 ## [0.2.10] — 2026-10-03
