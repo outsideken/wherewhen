@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wherewhen"
-version = "0.2.10"
+# The version lives only in wherewhen/_version.py (read below; #9).
+dynamic = ["version"]
 description = "Shared where-and-when primitives — coordinates, geometry, time, timezone, and CRS"
 license = { text = "MIT" }
 authors = [{ name = "OutsideKen" }]
@@ -36,6 +37,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+
+[tool.setuptools.dynamic]
+version = { attr = "wherewhen._version.__version__" }
 
 [tool.setuptools.packages.find]
 where   = ["."]
