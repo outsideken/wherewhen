@@ -257,9 +257,12 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 
 ## Versioning
 
-- Runtime version: `wherewhen.__version__` (from `_version.py`)
-- Packaging version: `pyproject.toml`
-- Bump both together on release; tag `wherewhen-vX.Y.Z` in git
+- The version is typed in one place, `wherewhen/_version.py`. Both
+  `wherewhen.__version__` and the packaging metadata come from it
+  (`pyproject.toml` reads it; `tests/test_one_version.py` fails if a copy
+  appears elsewhere).
+- On release, bump `_version.py` and the CHANGELOG heading, then tag
+  `wherewhen-vX.Y.Z` in git
 - A wherewhen minor release does **not** require a dependent release unless
   that package starts calling new APIs.  See [COMPATIBILITY.md](COMPATIBILITY.md).
 
