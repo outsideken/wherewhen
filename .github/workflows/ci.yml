@@ -64,7 +64,9 @@ jobs:
   test-py39:
     # jematools imports wherewhen inside JEMA, which runs Python 3.9.
     name: test (Python 3.9, JEMA runtime)
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, which has no Python 3.9 build
+    # (actions/python-versions ships 3.9 for 22.04 and 24.04 only).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
