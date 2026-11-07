@@ -24,6 +24,7 @@ import re
 from datetime import datetime
 
 from shapely.geometry import Point, Polygon
+from shapely.geometry.base import BaseGeometry
 
 from wherewhen._messages import warn as _warn
 
@@ -111,6 +112,22 @@ def _validate_polygon(polygon: Polygon, func_name: str = "validate_polygon") -> 
             _warn(
                 func_name,
                 f"Expected shapely.geometry.Polygon, got {type(polygon).__name__}.",
+            )
+        )
+
+
+def _validate_geometry(geom, func_name: str = "validate_geometry") -> None:
+    """
+    Raise ``TypeError`` if *geom* is not a Shapely geometry (any type, empty allowed).
+
+    Checks the type only.  Callers decide whether ``None`` or an empty geometry
+    is acceptable, since that differs between functions.
+    """
+    if not isinstance(geom, BaseGeometry):
+        raise TypeError(
+            _warn(
+                func_name,
+                f"Expected a shapely geometry, got {type(geom).__name__}.",
             )
         )
 

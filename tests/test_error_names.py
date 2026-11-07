@@ -42,6 +42,8 @@ BAD_CALLS = {
     "get_ratio": (geometry.get_ratio, ("not a geometry",)),
     "get_bounds": (geometry.get_bounds, ("not a geometry", 1.0)),
     "get_polygon": (geometry.get_polygon, ("not a geometry", 1.0)),
+    "unwrap_single_collection": (geometry.unwrap_single_collection, ("POINT (1 1)",)),
+    "demote_single_multi": (geometry.demote_single_multi, ("POINT (1 1)",)),
     # temporal
     "epoch_to_datetime": (temporal.epoch_to_datetime, ("x",)),
     "convert_to_datetime": (temporal.convert_to_datetime, ("not a date",)),
@@ -180,6 +182,9 @@ EXCEPTION_CLASSES = [
     (TypeError, lambda: geometry.get_ratio("x")),
     (TypeError, lambda: geometry.get_bounds("x", 1.0)),
     (TypeError, lambda: geometry.get_polygon("x", 1.0)),
+    (TypeError, lambda: geometry.geometry_to_box("x")),
+    (TypeError, lambda: geometry.unwrap_single_collection("POINT (1 1)")),
+    (TypeError, lambda: geometry.demote_single_multi("POINT (1 1)")),
     (TypeError, lambda: crs.convert_crs(ORIGIN, "EPSG:4326", 123)),
     (TypeError, lambda: geometry.latlon_to_point(None)),
     (TypeError, lambda: geometry.latlon_to_point(5)),

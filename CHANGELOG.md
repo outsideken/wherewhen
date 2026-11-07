@@ -10,6 +10,17 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Added
+- ``geometry.unwrap_single_collection`` and ``geometry.demote_single_multi``:
+  two single-job bricks that return the only member of a one-member
+  GeometryCollection, or the only part of a one-part MultiPoint,
+  MultiLineString or MultiPolygon. Anything else comes back unchanged. Mainly
+  for smaller files; compose them as needed.
+- ``_validators._validate_geometry``: checks that a value is a Shapely geometry.
+  ``geometry_to_box``, ``get_ratio`` and ``get_bounds`` / ``get_polygon`` use it
+  in place of their own copies of that check. Same errors as before, except
+  ``geometry_to_box`` now says "shapely" in lower case like the others.
+
 ### Changed
 - The version is typed in one place, ``wherewhen/_version.py`` (#9).
   ``pyproject.toml`` reads it (``dynamic = ["version"]``); the README's version
