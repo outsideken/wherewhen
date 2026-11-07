@@ -166,33 +166,9 @@ METRES_PER_UNIT: dict[str, float] = {
 SUPPORTED_DISTANCE_UNITS = frozenset(METRES_PER_UNIT)
 
 # Compiled coordinate-parsing patterns — hoisted to avoid re-compilation per call
-_DMS_PATTERN = re.compile(
-    r"""
-    (?P<lat_deg>[0-8]?\d)      \s*[^\d]*\s*
-    (?P<lat_min>[0-5]?\d)?     \s*[^\d]*\s*
-    (?P<lat_sec>[0-5]?\d(?:\.\d+)?)? \s*[^\d]*\s*
-    (?P<lat_dir>[NSns])
-    .*?
-    (?P<lon_deg>[01]?\d{1,2})  \s*[^\d]*\s*
-    (?P<lon_min>[0-5]?\d)?     \s*[^\d]*\s*
-    (?P<lon_sec>[0-5]?\d(?:\.\d+)?)? \s*[^\d]*\s*
-    (?P<lon_dir>[EWew])
-    """,
-    re.VERBOSE | re.IGNORECASE,
-)
-
-_DDM_PATTERN = re.compile(
-    r"""
-    (?P<lat_deg>\d{1,3}) \s*[^\d]*\s*
-    (?P<lat_min>\d{1,2}(?:\.\d+)?) \s*[^\d]*\s*
-    (?P<lat_dir>[NSns])
-    .*?
-    (?P<lon_deg>\d{1,3}) \s*[^\d]*\s*
-    (?P<lon_min>\d{1,2}(?:\.\d+)?) \s*[^\d]*\s*
-    (?P<lon_dir>[EWew])
-    """,
-    re.VERBOSE | re.IGNORECASE,
-)
+# A DMS/DDM pair is read as tokens: numbers and hemisphere letters.  Anything
+# else (symbols, spaces, commas) only separates them; see _split_hemisphere_pair.
+_COORD_TOKEN = re.compile(r"\d+(?:\.\d+)?|[NSEW]")
 
 # Detection patterns used by coordinate_to_point
 _MGRS_DETECT  = re.compile(r"^\d{1,2}[C-X]", re.IGNORECASE)
@@ -210,24 +186,102 @@ def _scrub_dms(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _split_hemisphere_pair(text: str, func_name: str) -> Tuple[Tuple[list, str], Tuple[list, str]]:
+    """
+    Split a scrubbed lat/lon pair into its number tokens and hemisphere letters.
+
+    The layout must be: 1–3 numbers, ``N``/``S``, 1–3 numbers, ``E``/``W``.
+    Returns ``((lat_numbers, "N"|"S"), (lon_numbers, "E"|"W"))`` with the numbers
+    still as strings, so a packed group like ``"513026"`` can be told apart.
+    """
+    tokens = _COORD_TOKEN.findall(text.upper())
+    letters = [i for i, t in enumerate(tokens) if t in "NSEW"]
+    layout_ok = (
+        len(letters) == 2
+        and tokens[letters[0]] in "NS"
+        and tokens[letters[1]] in "EW"
+        and 1 <= letters[0] <= 3
+        and 1 <= letters[1] - letters[0] - 1 <= 3
+        and letters[1] == len(tokens) - 1
+    )
+    if not layout_ok:
+        raise ValueError(
+            _warn(
+                func_name,
+                "Expected 1-3 numbers then N/S, then 1-3 numbers then E/W; "
+                f"read {tokens}.",
+            )
+        )
+    i, j = letters
+    return (tokens[:i], tokens[i]), (tokens[i + 1:j], tokens[j])
+
+
+def _unpack_packed_group(numbers: list, degree_digits: int) -> list:
+    """
+    Split a packed group such as ``"513026"`` (DDMMSS) into ``["51", "30", "26"]``.
+
+    Only a group of one number is unpacked, and only when its whole-number part
+    is *degree_digits* (2 for latitude, 3 for longitude) plus 2 or 4 digits;
+    any decimal stays on the last part (``"5130.44"`` → ``["51", "30.44"]``).
+    Anything else comes back unchanged.
+    """
+    if len(numbers) != 1:
+        return numbers
+    whole, dot, frac = numbers[0].partition(".")
+    if len(whole) not in (degree_digits + 2, degree_digits + 4):
+        return numbers
+    parts = [whole[:degree_digits]] + [
+        whole[k:k + 2] for k in range(degree_digits, len(whole), 2)
+    ]
+    parts[-1] += dot + frac
+    return parts
+
+
+def _sexagesimal_to_degrees(numbers: list, func_name: str, name: str) -> float:
+    """
+    Return decimal degrees from ``[degrees]``, ``[degrees, minutes]`` or
+    ``[degrees, minutes, seconds]`` (strings or numbers).
+
+    Only the last part may have a decimal.  Minutes and seconds must be in
+    ``[0, 60)``.  The result is unsigned; the hemisphere sets the sign.
+    """
+    if not 1 <= len(numbers) <= 3:
+        raise ValueError(
+            _warn(func_name, f"{name} needs 1-3 parts (degrees, minutes, seconds), got {len(numbers)}.")
+        )
+    values = [float(n) for n in numbers]
+    for unit, value in zip(("Degrees", "Minutes", "Seconds"), values[:-1]):
+        if value != int(value):
+            raise ValueError(
+                _warn(func_name, f"{name}: only the last part may have a decimal; {unit.lower()} is {value}.")
+            )
+    for unit, value in zip(("Minutes", "Seconds"), values[1:]):
+        if not 0 <= value < 60:
+            raise ValueError(
+                _warn(func_name, f"{name}: {unit.lower()} must be in [0, 60), got {value}.")
+            )
+    return sum(value / 60.0 ** k for k, value in enumerate(values))
+
+
 def _dd_to_dms(dd: float, is_lat: bool) -> str:
     """Format a decimal-degree value as a DMS string (e.g. ``51°30'26.16"N``)."""
     direction = ("N" if dd >= 0 else "S") if is_lat else ("E" if dd >= 0 else "W")
-    dd = abs(dd)
-    degrees = int(dd)
-    minutes_float = (dd - degrees) * 60.0
-    minutes = int(minutes_float)
-    seconds = (minutes_float - minutes) * 60.0
-    return f"{degrees}°{minutes:02d}'{seconds:05.2f}\"{direction}"
+    # Round to the printed precision first, then split, so 59.996" carries
+    # into the next minute instead of printing as 60.00".
+    hundredths = round(abs(dd) * 360000)
+    degrees, rest = divmod(hundredths, 360000)
+    minutes, hundredths = divmod(rest, 6000)
+    return f"{degrees}°{minutes:02d}'{hundredths / 100:05.2f}\"{direction}"
 
 
 def _dd_to_ddm(dd: float, is_lat: bool) -> str:
     """Format a decimal-degree value as a DDM string (e.g. ``51°30.436'N``)."""
     direction = ("N" if dd >= 0 else "S") if is_lat else ("E" if dd >= 0 else "W")
-    dd = abs(dd)
-    degrees = int(dd)
-    minutes = (dd - degrees) * 60.0
-    return f"{degrees}°{minutes:06.3f}'{direction}"
+    # Round to the printed precision first, so 59.9996' carries into the
+    # next degree instead of printing as 60.000'.
+    thousandths = round(abs(dd) * 60000)
+    degrees, thousandths = divmod(thousandths, 60000)
+    return f"{degrees}°{thousandths / 1000:06.3f}'{direction}"
 
 
 def _normalize_longitude(lon, lon_range: str, func_name: str) -> float:
@@ -977,34 +1031,15 @@ def _dms_to_point(dms_str: str, return_latlon: bool=False, debug: bool=False, *,
     if debug:
         print(f"[dms_to_point] scrubbed → {scrubbed!r}")
 
-    match = _DMS_PATTERN.search(scrubbed)
-    if not match:
-        raise ValueError(
-            _warn(
-                func_name,
-                f"Could not parse DMS pair. Input: {dms_str!r} "
-                f"(scrubbed: {scrubbed!r})",
-            )
-        )
-
-    g = match.groupdict()
-    if debug:
-        print(f"[dms_to_point] groups → {g}")
-
-    lat_deg = float(g["lat_deg"])
-    lat_min = float(g["lat_min"]) if g["lat_min"] else 0.0
-    lat_sec = float(g["lat_sec"]) if g["lat_sec"] else 0.0
-    lat_sign = 1.0 if g["lat_dir"].upper() == "N" else -1.0
-    lat_dd = lat_sign * (lat_deg + lat_min / 60.0 + lat_sec / 3600.0)
-
-    lon_deg = float(g["lon_deg"])
-    lon_min = float(g["lon_min"]) if g["lon_min"] else 0.0
-    lon_sec = float(g["lon_sec"]) if g["lon_sec"] else 0.0
-    lon_sign = 1.0 if g["lon_dir"].upper() == "E" else -1.0
-    lon_dd = lon_sign * (lon_deg + lon_min / 60.0 + lon_sec / 3600.0)
-
+    (lat_parts, lat_dir), (lon_parts, lon_dir) = _split_hemisphere_pair(scrubbed, func_name)
+    lat_dd = _sexagesimal_to_degrees(_unpack_packed_group(lat_parts, 2), func_name, "Latitude")
+    lon_dd = _sexagesimal_to_degrees(_unpack_packed_group(lon_parts, 3), func_name, "Longitude")
+    lat_dd = lat_dd if lat_dir == "N" else -lat_dd
+    lon_dd = lon_dd if lon_dir == "E" else -lon_dd
     _validate_latitude(lat_dd, func_name=func_name)
     _validate_longitude(lon_dd, func_name=func_name)
+    if debug:
+        print(f"[dms_to_point] lat, lon → {lat_dd!r}, {lon_dd!r}")
 
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
 
@@ -1019,7 +1054,11 @@ def dms_to_point(
 
     Accepts a wide variety of degree/minute/second separators and Unicode
     symbols (``°``, ``˚``, ``′``, ``'``, ``″``, ``"``, spaces, colons, …).
-    Both ``N``/``S`` and ``E``/``W`` hemisphere suffixes are required.
+    Both ``N``/``S`` and ``E``/``W`` hemisphere suffixes are required, latitude
+    first.  Each side has 1–3 parts (degrees, minutes, seconds); only the last
+    may have a decimal, and minutes and seconds must be below 60.  A packed
+    side such as ``513026N`` (DDMMSS) or ``0000740W`` (DDDMMSS) is split
+    by width.
 
     Parameters
     ----------
@@ -1029,6 +1068,7 @@ def dms_to_point(
         * ``"39°48'18\\" N 089°38'42\\" W"``
         * ``"51:30:26N 000:07:40W"``
         * ``"51 30 26 N 0 07 40 W"``
+        * ``"513026N 0000740W"``
     return_latlon : bool, optional
         If ``True``, return ``(lat_dd, lon_dd)`` tuple instead of a
         Shapely ``Point``.  Default is ``False``.
@@ -1049,7 +1089,8 @@ def dms_to_point(
         If *dms_str* is not a ``str``.
     ValueError
         If the string is empty, lacks proper N/S and E/W indicators,
-        cannot be parsed by the regex, or produces out-of-bounds coordinates.
+        does not have the layout above, has minutes or seconds of 60 or
+        more, or produces out-of-bounds coordinates.
 
     See Also
     --------
@@ -1070,20 +1111,18 @@ def _ddm_to_point(ddm_str: str, return_latlon: bool=False, *, func_name: str = "
     """Body of :func:`ddm_to_point`; errors name *func_name*."""
     _validate_ddm_pair(ddm_str, func_name=func_name)
 
-    match = _DDM_PATTERN.search(ddm_str)
-    if not match:
-        raise ValueError(
-            _warn(func_name, f"Could not parse DDM pair: {ddm_str!r}")
-        )
-
-    g = match.groupdict()
-    lat_dd = (1.0 if g["lat_dir"].upper() == "N" else -1.0) * (
-        float(g["lat_deg"]) + float(g["lat_min"]) / 60.0
-    )
-    lon_dd = (1.0 if g["lon_dir"].upper() == "E" else -1.0) * (
-        float(g["lon_deg"]) + float(g["lon_min"]) / 60.0
-    )
-
+    (lat_parts, lat_dir), (lon_parts, lon_dir) = _split_hemisphere_pair(_scrub_dms(ddm_str), func_name)
+    lat_parts = _unpack_packed_group(lat_parts, 2)
+    lon_parts = _unpack_packed_group(lon_parts, 3)
+    for name, parts in (("Latitude", lat_parts), ("Longitude", lon_parts)):
+        if len(parts) != 2:
+            raise ValueError(
+                _warn(func_name, f"{name} must be degrees and decimal minutes (2 parts), got {parts}.")
+            )
+    lat_dd = _sexagesimal_to_degrees(lat_parts, func_name, "Latitude")
+    lon_dd = _sexagesimal_to_degrees(lon_parts, func_name, "Longitude")
+    lat_dd = lat_dd if lat_dir == "N" else -lat_dd
+    lon_dd = lon_dd if lon_dir == "E" else -lon_dd
     _validate_latitude(lat_dd, func_name=func_name)
     _validate_longitude(lon_dd, func_name=func_name)
 
@@ -1102,7 +1141,9 @@ def ddm_to_point(ddm_str: str, return_latlon: bool = False) -> Point:
     ddm_str : str
         DDM coordinate pair string.  Expected structure:
         ``<deg> <decimal_min> <N|S>  <deg> <decimal_min> <E|W>``.
-        Various separators and symbols are tolerated.
+        Various separators and symbols are tolerated.  Minutes must be below
+        60.  A packed side such as ``5130.440N`` (DDMM.mmm) or
+        ``00007.667W`` (DDDMM.mmm) is split by width.
     return_latlon : bool, optional
         If ``True``, return ``(lat_dd, lon_dd)`` tuple instead of a
         Shapely ``Point``.  Default is ``False``.
@@ -1118,7 +1159,8 @@ def ddm_to_point(ddm_str: str, return_latlon: bool = False) -> Point:
     ------
     ValueError
         If *ddm_str* is empty, lacks proper N/S and E/W indicators,
-        cannot be parsed, or produces out-of-bounds coordinates.
+        does not have degrees and minutes on each side, has minutes of 60
+        or more, or produces out-of-bounds coordinates.
 
     See Also
     --------

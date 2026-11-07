@@ -123,6 +123,9 @@ MORE_BAD_CALLS = [
     # Range checks after parsing go through the shared validators.
     ("dms_to_point", lambda: geometry.dms_to_point("0°0'0\" N 181°0'0\" E")),
     ("ddm_to_point", lambda: geometry.ddm_to_point("95°0.000'N 0°0.000'E")),
+    ("dms_to_point", lambda: geometry.dms_to_point("51°75'0\" N 0°0'0\" E")),
+    ("ddm_to_point", lambda: geometry.ddm_to_point("51°75.0'N 0°7.0'W")),
+    ("coordinate_to_point", lambda: geometry.coordinate_to_point("51°75'0\" N 0°0'0\" E")),
     ("box_to_polygon", lambda: geometry.box_to_polygon(12345)),
     ("convert_crs", lambda: crs.convert_crs(Point(-180, -90), "BD09", "WGS84")),
 ]

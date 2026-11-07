@@ -122,6 +122,117 @@ class TestDdmToPoint:
             ddm_to_point(51.5)
 
 
+class TestDmsDdmParsing:
+    """Each part is read whole: no silent misreads of degrees, minutes or seconds."""
+
+    @pytest.mark.parametrize("text, lat, lon", [
+        ('90°0\'0" N 0°0\'0" E', 90.0, 0.0),             # North Pole was read as 0
+        ('90°0\'0" S 180°0\'0" W', -90.0, -180.0),
+        ('51°30\'26.5"N 0°7\'40.25"W', 51 + 30 / 60 + 26.5 / 3600, -(7 / 60 + 40.25 / 3600)),
+        ("51 30 26 N 0 7 40 W", 51 + 30 / 60 + 26 / 3600, -(7 / 60 + 40 / 3600)),
+        ("51:30:26N 000:07:40W", 51 + 30 / 60 + 26 / 3600, -(7 / 60 + 40 / 3600)),
+        ("513026N 0000740W", 51 + 30 / 60 + 26 / 3600, -(7 / 60 + 40 / 3600)),   # packed DDMMSS / DDDMMSS
+        ("513026N0000740W", 51 + 30 / 60 + 26 / 3600, -(7 / 60 + 40 / 3600)),
+        ("5130N 00007W", 51.5, -7 / 60),                    # packed DDMM / DDDMM
+        ("51.5N 0.1W", 51.5, -0.1),                         # was read as 51°5'
+        ("51°30.5'N 0°7.5'W", 51 + 30.5 / 60, -7.5 / 60),   # decimal minutes
+    ])
+    def test_dms_reads_each_part_whole(self, text, lat, lon):
+        from wherewhen.geometry import dms_to_point
+        got_lat, got_lon = dms_to_point(text, return_latlon=True)
+        assert got_lat == pytest.approx(lat)
+        assert got_lon == pytest.approx(lon)
+
+    @pytest.mark.parametrize("text, lat, lon", [
+        ("51°30.440'N 0°07.667'W", 51 + 30.44 / 60, -7.667 / 60),
+        ("51 30 N 0 7 W", 51.5, -7 / 60),
+        ("90°0.0'N 0°0.0'E", 90.0, 0.0),
+        ("5130.440N 00007.667W", 51 + 30.44 / 60, -7.667 / 60),   # packed DDMM.mmm / DDDMM.mmm
+    ])
+    def test_ddm_reads_each_part_whole(self, text, lat, lon):
+        from wherewhen.geometry import ddm_to_point
+        got_lat, got_lon = ddm_to_point(text, return_latlon=True)
+        assert got_lat == pytest.approx(lat)
+        assert got_lon == pytest.approx(lon)
+
+    @pytest.mark.parametrize("text, message", [
+        ('95°0\'0" N 0°0\'0" E', "Latitude must be in"),     # was read as 5
+        ('90°0\'1" N 0°0\'0" E', "Latitude must be in"),
+        ('89°59\'60" N 0°0\'0" E', "seconds must be in"),     # was read as 59.1
+        ('51°75\'0" N 0°0\'0" E', "minutes must be in"),      # was read as 75
+        ('51.5°30\'0" N 0°0\'0" E', "only the last part"),
+        ('0°0\'0" N 181°0\'0" E', "Longitude must be in"),
+        ('180°0\'0" E 0°0\'0" N', "Expected 1-3 numbers"),    # longitude first
+        ("N51 30 26 W0 7 40", "Expected 1-3 numbers"),        # hemisphere first
+        ("1 2 3 4 N 0 W", "Expected 1-3 numbers"),
+        ("513N 0W", "Latitude must be in"),                   # 3 digits is not a packed latitude
+    ])
+    def test_dms_rejects_what_it_used_to_misread(self, text, message):
+        from wherewhen.geometry import dms_to_point
+        with pytest.raises(ValueError, match=message):
+            dms_to_point(text)
+
+    @pytest.mark.parametrize("text, message", [
+        ("51°75.0'N 0°7.0'W", "minutes must be in"),        # was read as 52.25
+        ("51.5N 0.1W", "2 parts"),                          # was read as 51°5'
+        ("51 30 26 N 0 7 40 W", "2 parts"),                 # that is DMS
+        ("1234 30.0N 0 7W", "Latitude must be in"),
+    ])
+    def test_ddm_rejects_what_it_used_to_misread(self, text, message):
+        from wherewhen.geometry import ddm_to_point
+        with pytest.raises(ValueError, match=message):
+            ddm_to_point(text)
+
+    @pytest.mark.parametrize("lon, lat", [
+        (-0.1277777, 51.4999999),      # seconds round to 60.00
+        (-0.99999999, 10.0),           # minutes round to 60.000
+        (-104.4499999, -65.1833333),
+        (180.0, 90.0), (-180.0, -90.0), (0.0, 0.0),
+    ])
+    def test_formatters_carry_rounding_and_round_trip(self, lon, lat):
+        from wherewhen.geometry import ddm_to_point, dms_to_point, point_to_ddm, point_to_dms
+        pt = Point(lon, lat)
+        dms = " ".join(point_to_dms(pt))
+        ddm = " ".join(point_to_ddm(pt))
+        assert '60.00"' not in dms and "60.000'" not in ddm
+        for back in (dms_to_point(dms), ddm_to_point(ddm)):
+            assert back.y == pytest.approx(lat, abs=1e-4)
+            assert back.x == pytest.approx(lon, abs=1e-4)
+
+
+class TestCoordinateBricks:
+
+    def test_split_hemisphere_pair(self):
+        from wherewhen.geometry import _split_hemisphere_pair
+        assert _split_hemisphere_pair("51 30 26 N, 0 7 40 W", "f") == (
+            (["51", "30", "26"], "N"), (["0", "7", "40"], "W"))
+
+    @pytest.mark.parametrize("numbers, digits, expected", [
+        (["513026"], 2, ["51", "30", "26"]),
+        (["5130.44"], 2, ["51", "30.44"]),
+        (["0000740"], 3, ["000", "07", "40"]),
+        (["51.5"], 2, ["51.5"]),                 # plain degrees: unchanged
+        (["51", "30"], 2, ["51", "30"]),         # already split: unchanged
+        (["513"], 2, ["513"]),                   # not a packed width: unchanged
+    ])
+    def test_unpack_packed_group(self, numbers, digits, expected):
+        from wherewhen.geometry import _unpack_packed_group
+        assert _unpack_packed_group(numbers, digits) == expected
+
+    @pytest.mark.parametrize("numbers, expected", [
+        (["51"], 51.0), (["51", "30"], 51.5), (["51", "30", "36"], 51.51), (["51", "30.6"], 51.51),
+    ])
+    def test_sexagesimal_to_degrees(self, numbers, expected):
+        from wherewhen.geometry import _sexagesimal_to_degrees
+        assert _sexagesimal_to_degrees(numbers, "f", "Latitude") == pytest.approx(expected)
+
+    @pytest.mark.parametrize("numbers", [[], ["1", "2", "3", "4"], ["51", "60"], ["51", "0", "60"], ["51.5", "30"]])
+    def test_sexagesimal_to_degrees_rejects(self, numbers):
+        from wherewhen.geometry import _sexagesimal_to_degrees
+        with pytest.raises(ValueError, match=r"\[f\]"):
+            _sexagesimal_to_degrees(numbers, "f", "Latitude")
+
+
 class TestCoordinateToPoint:
 
     def test_latlon_tuple(self):
