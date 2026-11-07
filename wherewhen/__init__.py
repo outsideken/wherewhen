@@ -53,6 +53,8 @@ from wherewhen.geometry import (
     get_ratio,
     get_bounds,
     get_polygon,
+    unwrap_single_collection,
+    demote_single_multi,
 )
 
 from wherewhen.temporal import (

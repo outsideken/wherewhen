@@ -22,6 +22,8 @@ Covers:
 * Unified dispatcher :func:`coordinate_to_point` that auto-detects format
 * Shapely geometry → PostGIS BOX string or envelope ``Polygon``
 * Aspect-ratio utilities: :func:`get_ratio`, :func:`get_bounds`, :func:`get_polygon`
+* Single-member simplification: :func:`unwrap_single_collection`,
+  :func:`demote_single_multi`
 
 Non-WGS-84 coordinate system conversions (GCJ-02, BD-09, SK-42) are in
 :mod:`wherewhen.crs`.  The ``mgrs`` package is required for MGRS conversions.
@@ -72,6 +74,10 @@ get_bounds
     Return adjusted bounding-box bounds to match a target aspect ratio.
 get_polygon
     Return a rectangular Polygon with a target aspect ratio.
+unwrap_single_collection
+    Return the member of a one-member GeometryCollection.
+demote_single_multi
+    Return the one part of a one-part MultiPoint, MultiLineString or MultiPolygon.
 
 Toolkit
 -------
@@ -82,10 +88,18 @@ errors raise with ``⚠️ [function_name] …`` via :mod:`wherewhen._messages`.
 
 import math
 import re
-from typing import Literal, Sequence, Tuple, Union
+from typing import Literal, Optional, Sequence, Tuple, Union
 
 import mgrs as mgrs_lib
-from shapely.geometry import Point, Polygon, box as shapely_box
+from shapely.geometry import (
+    GeometryCollection,
+    MultiLineString,
+    MultiPoint,
+    MultiPolygon,
+    Point,
+    Polygon,
+    box as shapely_box,
+)
 from shapely.geometry.base import BaseGeometry
 
 from wherewhen._messages import warn as _warn
@@ -98,6 +112,7 @@ from wherewhen._validators import (
     _validate_point,
     _validate_dms,
     _validate_ddm_pair,
+    _validate_geometry,
 )
 
 __all__ = [
@@ -126,6 +141,8 @@ __all__ = [
     "get_ratio",
     "get_bounds",
     "get_polygon",
+    "unwrap_single_collection",
+    "demote_single_multi",
 ]
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -1434,13 +1451,7 @@ def geometry_to_box(geometry: BaseGeometry, as_polygon: bool = False) -> Union[s
     >>> envelope.bounds == poly.bounds
     True
     """
-    if not isinstance(geometry, BaseGeometry):
-        raise TypeError(
-            _warn(
-                "geometry_to_box",
-                f"Expected a Shapely geometry, got {type(geometry).__name__}.",
-            )
-        )
+    _validate_geometry(geometry, func_name="geometry_to_box")
     if isinstance(geometry, Point):
         raise ValueError(
             _warn(
@@ -1563,10 +1574,7 @@ def get_ratio(geom: BaseGeometry, tolerance: float = 1e-8) -> float:
     >>> get_ratio(box(0, 0, 16, 9))
     1.7777...
     """
-    if not isinstance(geom, BaseGeometry):
-        raise TypeError(
-            _warn("get_ratio", f"Expected a shapely geometry, got {type(geom).__name__}.")
-        )
+    _validate_geometry(geom, func_name="get_ratio")
     if geom.is_empty:
         raise ValueError(
             _warn("get_ratio", "Cannot compute aspect ratio of empty geometry.")
@@ -1591,10 +1599,7 @@ def get_ratio(geom: BaseGeometry, tolerance: float = 1e-8) -> float:
 def _get_bounds(geom, target_aspect: float, fit_mode: str, tolerance: float,
                 func_name: str) -> Tuple[float, float, float, float]:
     """Body of :func:`get_bounds`; errors name *func_name*."""
-    if not isinstance(geom, BaseGeometry):
-        raise TypeError(
-            _warn(func_name, f"Expected a shapely geometry, got {type(geom).__name__}.")
-        )
+    _validate_geometry(geom, func_name=func_name)
     if geom.is_empty:
         raise ValueError(
             _warn(func_name, "Cannot adjust aspect ratio of empty geometry.")
@@ -1767,3 +1772,101 @@ def get_polygon(
     return shapely_box(
         *_get_bounds(geom, target_aspect, fit_mode, tolerance, "get_polygon")
     )
+
+
+# ── Single-member simplification ──────────────────────────────────────────────
+# Two single-job bricks.  Each takes one geometry and returns one geometry;
+# anything it does not apply to comes back unchanged.  Map them over a column
+# (``gdf.geometry.map(unwrap_single_collection)``) and compose them as needed.
+
+_MULTI_TYPES = (MultiPoint, MultiLineString, MultiPolygon)
+
+
+def unwrap_single_collection(geom: Optional[BaseGeometry]) -> Optional[BaseGeometry]:
+    """
+    Return the member of a one-member GeometryCollection; anything else unchanged.
+
+    Collections nested one inside another are unwrapped until a collection has
+    more than one member, or the member is not a collection.  Useful for
+    smaller files: the member's WKT drops the ``GEOMETRYCOLLECTION (…)``
+    wrapper.
+
+    Parameters
+    ----------
+    geom : shapely.geometry.base.BaseGeometry or None
+        Any Shapely geometry.
+
+    Returns
+    -------
+    shapely.geometry.base.BaseGeometry or None
+        The single member, or *geom* itself.  ``None``, empty collections and
+        collections of two or more members come back unchanged.
+
+    Raises
+    ------
+    TypeError
+        If *geom* is neither a Shapely geometry nor ``None``.
+
+    See Also
+    --------
+    demote_single_multi : the same for one-part Multi* geometries.  To do
+        both, unwrap first: ``demote_single_multi(unwrap_single_collection(g))``,
+        because a collection can hold a one-part multi-geometry.
+
+    Examples
+    --------
+    >>> from shapely import wkt
+    >>> unwrap_single_collection(wkt.loads("GEOMETRYCOLLECTION (POINT (1 10))")).wkt
+    'POINT (1 10)'
+    >>> unwrap_single_collection(wkt.loads("GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3))")).wkt
+    'GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3))'
+    """
+    if geom is None:
+        return None
+    _validate_geometry(geom, func_name="unwrap_single_collection")
+    while isinstance(geom, GeometryCollection) and len(geom.geoms) == 1:
+        geom = geom.geoms[0]
+    return geom
+
+
+def demote_single_multi(geom: Optional[BaseGeometry]) -> Optional[BaseGeometry]:
+    """
+    Return the one part of a one-part MultiPoint, MultiLineString or MultiPolygon.
+
+    Anything else comes back unchanged, including a GeometryCollection: use
+    :func:`unwrap_single_collection` for collections.
+
+    Parameters
+    ----------
+    geom : shapely.geometry.base.BaseGeometry or None
+        Any Shapely geometry.
+
+    Returns
+    -------
+    shapely.geometry.base.BaseGeometry or None
+        The single part, or *geom* itself.  ``None``, empty and multi-part
+        geometries come back unchanged.
+
+    Raises
+    ------
+    TypeError
+        If *geom* is neither a Shapely geometry nor ``None``.
+
+    See Also
+    --------
+    unwrap_single_collection : the same for one-member GeometryCollections.
+
+    Examples
+    --------
+    >>> from shapely import wkt
+    >>> demote_single_multi(wkt.loads("MULTIPOINT ((1 1))")).wkt
+    'POINT (1 1)'
+    >>> demote_single_multi(wkt.loads("MULTIPOINT ((1 1), (2 2))")).wkt
+    'MULTIPOINT ((1 1), (2 2))'
+    """
+    if geom is None:
+        return None
+    _validate_geometry(geom, func_name="demote_single_multi")
+    if isinstance(geom, _MULTI_TYPES) and len(geom.geoms) == 1:
+        return geom.geoms[0]
+    return geom

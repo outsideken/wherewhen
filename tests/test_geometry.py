@@ -457,3 +457,113 @@ class TestGeometryToBox:
         from wherewhen.geometry import geometry_to_box
         with pytest.raises(TypeError, match="⚠️"):
             geometry_to_box(self.POLY, as_polygon=1)
+
+
+# ── Single-member simplification ──────────────────────────────────────────────
+
+from shapely import wkt as _wkt  # noqa: E402
+
+from wherewhen._validators import _validate_geometry  # noqa: E402
+from wherewhen.geometry import demote_single_multi, unwrap_single_collection  # noqa: E402
+
+
+def _same(geom, text):
+    """Same type and coordinates as *text*.  Compares geometries, not WKT text:
+    older shapely (Python 3.9) writes MULTIPOINT (1 1) for MULTIPOINT ((1 1))."""
+    expected = _wkt.loads(text)
+    return geom.geom_type == expected.geom_type and geom.equals(expected)
+
+
+class TestUnwrapSingleCollection:
+
+    @pytest.mark.parametrize("text, expected", [
+        ("GEOMETRYCOLLECTION (POINT (1 10))", "POINT (1 10)"),
+        ("GEOMETRYCOLLECTION (LINESTRING (0 0, 1 1))", "LINESTRING (0 0, 1 1)"),
+        ("GEOMETRYCOLLECTION (POLYGON ((0 0, 1 0, 1 1, 0 0)))", "POLYGON ((0 0, 1 0, 1 1, 0 0))"),
+        ("GEOMETRYCOLLECTION (GEOMETRYCOLLECTION (POINT (1 10)))", "POINT (1 10)"),
+        ("GEOMETRYCOLLECTION (MULTIPOINT ((1 1)))", "MULTIPOINT ((1 1))"),
+    ])
+    def test_one_member_is_unwrapped(self, text, expected):
+        assert _same(unwrap_single_collection(_wkt.loads(text)), expected)
+
+    @pytest.mark.parametrize("text", [
+        "GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3))",
+        "GEOMETRYCOLLECTION (GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3)))",
+        "GEOMETRYCOLLECTION EMPTY",
+        "MULTIPOINT ((1 1))",
+        "POINT (5 5)",
+    ])
+    def test_anything_else_is_unchanged(self, text):
+        geom = _wkt.loads(text)
+        result = unwrap_single_collection(geom)
+        if text.startswith("GEOMETRYCOLLECTION (GEOMETRYCOLLECTION"):
+            # One wrapper removed: the inner collection has two members.
+            assert _same(result, "GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3))")
+        else:
+            assert result is geom
+
+    def test_none_stays_none(self):
+        assert unwrap_single_collection(None) is None
+
+    def test_rejects_a_non_geometry(self):
+        with pytest.raises(TypeError, match=r"\[unwrap_single_collection\]"):
+            unwrap_single_collection("GEOMETRYCOLLECTION (POINT (1 10))")
+
+
+class TestDemoteSingleMulti:
+
+    @pytest.mark.parametrize("text, expected", [
+        ("MULTIPOINT ((1 1))", "POINT (1 1)"),
+        ("MULTILINESTRING ((0 0, 1 1))", "LINESTRING (0 0, 1 1)"),
+        ("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))", "POLYGON ((0 0, 1 0, 1 1, 0 0))"),
+    ])
+    def test_one_part_is_demoted(self, text, expected):
+        assert _same(demote_single_multi(_wkt.loads(text)), expected)
+
+    @pytest.mark.parametrize("text", [
+        "MULTIPOINT ((1 1), (2 2))",
+        "MULTIPOINT EMPTY",
+        "GEOMETRYCOLLECTION (POINT (1 10))",
+        "POLYGON ((0 0, 1 0, 1 1, 0 0))",
+    ])
+    def test_anything_else_is_unchanged(self, text):
+        geom = _wkt.loads(text)
+        assert demote_single_multi(geom) is geom
+
+    def test_none_stays_none(self):
+        assert demote_single_multi(None) is None
+
+    def test_rejects_a_non_geometry(self):
+        with pytest.raises(TypeError, match=r"\[demote_single_multi\]"):
+            demote_single_multi(12345)
+
+
+def test_bricks_compose_unwrap_first():
+    geom = _wkt.loads("GEOMETRYCOLLECTION (MULTIPOINT ((1 1)))")
+    assert _same(demote_single_multi(unwrap_single_collection(geom)), "POINT (1 1)")
+
+
+def test_bricks_map_over_a_column():
+    gpd = pytest.importorskip("geopandas")
+    column = gpd.GeoSeries.from_wkt(
+        ["GEOMETRYCOLLECTION (POINT (1 10))", None, "MULTIPOINT ((1 1))"]
+    )
+    out = column.map(unwrap_single_collection).map(demote_single_multi)
+    assert _same(out.iloc[0], "POINT (1 10)")
+    assert out.iloc[1] is None
+    assert _same(out.iloc[2], "POINT (1 1)")
+
+
+class TestValidateGeometry:
+
+    @pytest.mark.parametrize("geom", [
+        Point(0, 0), Polygon(), _wkt.loads("GEOMETRYCOLLECTION EMPTY"),
+    ])
+    def test_accepts_any_geometry_including_empty(self, geom):
+        assert _validate_geometry(geom, func_name="caller") is None
+
+    @pytest.mark.parametrize("value", [None, "POINT (0 0)", 1, (0, 0)])
+    def test_rejects_anything_else_naming_the_caller(self, value):
+        with pytest.raises(TypeError, match=r"\[caller\] Expected a shapely geometry"):
+            _validate_geometry(value, func_name="caller")
+
