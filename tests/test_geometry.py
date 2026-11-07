@@ -467,8 +467,11 @@ from wherewhen._validators import _validate_geometry  # noqa: E402
 from wherewhen.geometry import demote_single_multi, unwrap_single_collection  # noqa: E402
 
 
-def _out(func, text):
-    return func(_wkt.loads(text)).wkt
+def _same(geom, text):
+    """Same type and coordinates as *text*.  Compares geometries, not WKT text:
+    older shapely (Python 3.9) writes MULTIPOINT (1 1) for MULTIPOINT ((1 1))."""
+    expected = _wkt.loads(text)
+    return geom.geom_type == expected.geom_type and geom.equals(expected)
 
 
 class TestUnwrapSingleCollection:
@@ -481,7 +484,7 @@ class TestUnwrapSingleCollection:
         ("GEOMETRYCOLLECTION (MULTIPOINT ((1 1)))", "MULTIPOINT ((1 1))"),
     ])
     def test_one_member_is_unwrapped(self, text, expected):
-        assert _out(unwrap_single_collection, text) == expected
+        assert _same(unwrap_single_collection(_wkt.loads(text)), expected)
 
     @pytest.mark.parametrize("text", [
         "GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3))",
@@ -495,7 +498,7 @@ class TestUnwrapSingleCollection:
         result = unwrap_single_collection(geom)
         if text.startswith("GEOMETRYCOLLECTION (GEOMETRYCOLLECTION"):
             # One wrapper removed: the inner collection has two members.
-            assert result.wkt == "GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3))"
+            assert _same(result, "GEOMETRYCOLLECTION (POINT (1 10), POINT (2 3))")
         else:
             assert result is geom
 
@@ -515,7 +518,7 @@ class TestDemoteSingleMulti:
         ("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))", "POLYGON ((0 0, 1 0, 1 1, 0 0))"),
     ])
     def test_one_part_is_demoted(self, text, expected):
-        assert _out(demote_single_multi, text) == expected
+        assert _same(demote_single_multi(_wkt.loads(text)), expected)
 
     @pytest.mark.parametrize("text", [
         "MULTIPOINT ((1 1), (2 2))",
@@ -537,7 +540,7 @@ class TestDemoteSingleMulti:
 
 def test_bricks_compose_unwrap_first():
     geom = _wkt.loads("GEOMETRYCOLLECTION (MULTIPOINT ((1 1)))")
-    assert demote_single_multi(unwrap_single_collection(geom)).wkt == "POINT (1 1)"
+    assert _same(demote_single_multi(unwrap_single_collection(geom)), "POINT (1 1)")
 
 
 def test_bricks_map_over_a_column():
@@ -546,9 +549,9 @@ def test_bricks_map_over_a_column():
         ["GEOMETRYCOLLECTION (POINT (1 10))", None, "MULTIPOINT ((1 1))"]
     )
     out = column.map(unwrap_single_collection).map(demote_single_multi)
-    assert out.iloc[0].wkt == "POINT (1 10)"
+    assert _same(out.iloc[0], "POINT (1 10)")
     assert out.iloc[1] is None
-    assert out.iloc[2].wkt == "POINT (1 1)"
+    assert _same(out.iloc[2], "POINT (1 1)")
 
 
 class TestValidateGeometry:
