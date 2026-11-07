@@ -136,6 +136,9 @@ class TestDmsDdmParsing:
         ("5130N 00007W", 51.5, -7 / 60),                    # packed DDMM / DDDMM
         ("51.5N 0.1W", 51.5, -0.1),                         # was read as 51°5'
         ("51°30.5'N 0°7.5'W", 51 + 30.5 / 60, -7.5 / 60),   # decimal minutes
+        ('51°30\'26"N,0°7\'40"W', 51 + 30 / 60 + 26 / 3600, -(7 / 60 + 40 / 3600)),  # comma separators
+        ("51 30 26 N, 0 7 40 W", 51 + 30 / 60 + 26 / 3600, -(7 / 60 + 40 / 3600)),
+        ("51 30 26, N 0 7 40 W", 51 + 30 / 60 + 26 / 3600, -(7 / 60 + 40 / 3600)),
     ])
     def test_dms_reads_each_part_whole(self, text, lat, lon):
         from wherewhen.geometry import dms_to_point
@@ -166,6 +169,13 @@ class TestDmsDdmParsing:
         ("N51 30 26 W0 7 40", "Expected 1-3 numbers"),        # hemisphere first
         ("1 2 3 4 N 0 W", "Expected 1-3 numbers"),
         ("513N 0W", "Latitude must be in"),                   # 3 digits is not a packed latitude
+        (".5N 0.25W", "Can't read '.5'"),                     # was read as 5
+        ("0,5N 0W", "Can't read '0,5'"),                      # was read as 0°5'
+        ("-51 30 N 0 7 W", "Can't read '-51'"),               # sign was dropped
+        ("\u221251 30 N 0 7 W", "Can't read"),                # Unicode minus
+        ("+51N 0W", "Can't read '\\+51'"),
+        ("51 30. N 0 7 W", "Can't read '30.'"),
+        ("1.2.3N 0W", "Can't read '1.2.3'"),
     ])
     def test_dms_rejects_what_it_used_to_misread(self, text, message):
         from wherewhen.geometry import dms_to_point
@@ -177,6 +187,7 @@ class TestDmsDdmParsing:
         ("51.5N 0.1W", "2 parts"),                          # was read as 51°5'
         ("51 30 26 N 0 7 40 W", "2 parts"),                 # that is DMS
         ("1234 30.0N 0 7W", "Latitude must be in"),
+        ("51 0,5N 0 7W", "Can't read '0,5'"),
     ])
     def test_ddm_rejects_what_it_used_to_misread(self, text, message):
         from wherewhen.geometry import ddm_to_point

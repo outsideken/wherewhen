@@ -63,7 +63,9 @@ are no longer numbers, and DMS/DDM strings that used to be misread now raise
   (``_split_hemisphere_pair``, ``_unpack_packed_group``,
   ``_sexagesimal_to_degrees``). Each part is read whole, only the last part
   may have a decimal, minutes and seconds must be below 60, and anything
-  that doesn't fit raises ``ValueError``. Packed forms (``513026N
+  that doesn't fit raises ``ValueError``, including a sign (``-51``), a
+  leading dot (``.5``) or a decimal comma (``0,5``), which were silently
+  dropped or split; N/S and E/W give the sign. Packed forms (``513026N
   0000740W``) still work; ``ddm_to_point`` now also reads packed DDM
   (``5130.440N 00007.667W``).
 - ``point_to_dms`` / ``point_to_ddm`` no longer print ``60.00"`` or

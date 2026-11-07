@@ -166,9 +166,13 @@ METRES_PER_UNIT: dict[str, float] = {
 SUPPORTED_DISTANCE_UNITS = frozenset(METRES_PER_UNIT)
 
 # Compiled coordinate-parsing patterns — hoisted to avoid re-compilation per call
-# A DMS/DDM pair is read as tokens: numbers and hemisphere letters.  Anything
-# else (symbols, spaces, commas) only separates them; see _split_hemisphere_pair.
-_COORD_TOKEN = re.compile(r"\d+(?:\.\d+)?|[NSEW]")
+# A DMS/DDM pair is read as tokens: number-like runs and hemisphere letters.
+# Symbols and spaces only separate them, and so does a comma at either end of a
+# number.  A number-like run takes a leading sign or dot and any dots or commas
+# after its first digit, so "-51", ".5" and "0,5" stay whole and are rejected
+# rather than misread; see _split_hemisphere_pair.
+_COORD_TOKEN = re.compile(r"[-+\u2212]?\.*\d[\d.,]*|[NSEW]")
+_PLAIN_NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
 # Detection patterns used by coordinate_to_point
 _MGRS_DETECT  = re.compile(r"^\d{1,2}[C-X]", re.IGNORECASE)
@@ -191,11 +195,23 @@ def _split_hemisphere_pair(text: str, func_name: str) -> Tuple[Tuple[list, str],
     Split a scrubbed lat/lon pair into its number tokens and hemisphere letters.
 
     The layout must be: 1–3 numbers, ``N``/``S``, 1–3 numbers, ``E``/``W``.
+    Each number must be plain digits with an optional ``.`` decimal: a sign,
+    a leading dot or a decimal comma raises rather than being misread.
     Returns ``((lat_numbers, "N"|"S"), (lon_numbers, "E"|"W"))`` with the numbers
     still as strings, so a packed group like ``"513026"`` can be told apart.
     """
-    tokens = _COORD_TOKEN.findall(text.upper())
-    letters = [i for i, t in enumerate(tokens) if t in "NSEW"]
+    tokens = [t.rstrip(",") for t in _COORD_TOKEN.findall(text.upper())]
+    for token in tokens:
+        if token not in ("N", "S", "E", "W") and not _PLAIN_NUMBER.fullmatch(token):
+            raise ValueError(
+                _warn(
+                    func_name,
+                    f"Can't read {token!r} as a number: use digits with an "
+                    "optional '.' decimal (0.5, not .5 or 0,5) and no sign; "
+                    "N/S and E/W give the sign.",
+                )
+            )
+    letters = [i for i, t in enumerate(tokens) if t in ("N", "S", "E", "W")]
     layout_ok = (
         len(letters) == 2
         and tokens[letters[0]] in "NS"
