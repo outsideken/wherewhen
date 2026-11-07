@@ -37,19 +37,51 @@ _BOX_PATTERN = re.compile(
 )
 
 
+# ── Numbers ───────────────────────────────────────────────────────────────────
+
+def _validate_number(value, func_name: str = "validate_number", name: str = "Value") -> None:
+    """
+    Raise ``TypeError`` if *value* is not a real number (``int`` or ``float``).
+
+    ``bool`` is rejected even though Python counts it as an ``int``: ``True``
+    passed as a latitude or a weight is a mistake, not the number 1.  Checks
+    the type only; callers check ranges.  *name* starts the message
+    (``"Latitude must be a number, got str."``).
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(
+            _warn(
+                func_name,
+                f"{name} must be a number, got {type(value).__name__}.",
+            )
+        )
+
+
+def _validate_integer(value, func_name: str = "validate_integer", name: str = "Value") -> None:
+    """
+    Raise ``TypeError`` if *value* is not an ``int`` (``bool`` rejected).
+
+    Checks the type only; callers check ranges.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(
+            _warn(
+                func_name,
+                f"{name} must be an integer, got {type(value).__name__}.",
+            )
+        )
+
+
 # ── Coordinates ───────────────────────────────────────────────────────────────
 
 def _validate_latitude(latitude: float, func_name: str = "validate_latitude") -> None:
     """
-    Raise ``ValueError`` if *latitude* is not a valid WGS-84 latitude.
+    Raise if *latitude* is not a valid WGS-84 latitude.
+
+    ``TypeError`` if it is not a number (``bool`` included), ``ValueError`` if
+    it is outside [-90, 90].
     """
-    if not isinstance(latitude, (int, float)):
-        raise ValueError(
-            _warn(
-                func_name,
-                f"Latitude must be a number, got {type(latitude).__name__}.",
-            )
-        )
+    _validate_number(latitude, func_name, "Latitude")
     if not (-90.0 <= latitude <= 90.0):
         raise ValueError(
             _warn(
@@ -61,15 +93,12 @@ def _validate_latitude(latitude: float, func_name: str = "validate_latitude") ->
 
 def _validate_longitude(longitude: float, func_name: str = "validate_longitude") -> None:
     """
-    Raise ``ValueError`` if *longitude* is not a valid WGS-84 longitude.
+    Raise if *longitude* is not a valid WGS-84 longitude.
+
+    ``TypeError`` if it is not a number (``bool`` included), ``ValueError`` if
+    it is outside [-180, 180].
     """
-    if not isinstance(longitude, (int, float)):
-        raise ValueError(
-            _warn(
-                func_name,
-                f"Longitude must be a number, got {type(longitude).__name__}.",
-            )
-        )
+    _validate_number(longitude, func_name, "Longitude")
     if not (-180.0 <= longitude <= 180.0):
         raise ValueError(
             _warn(
@@ -176,13 +205,7 @@ def _validate_mgrs_precision(precision: int, func_name: str = "validate_mgrs_pre
     """
     Raise if *precision* is not a valid MGRS precision level.
     """
-    if not isinstance(precision, int):
-        raise TypeError(
-            _warn(
-                func_name,
-                f"MGRS precision must be an integer, got {type(precision).__name__}.",
-            )
-        )
+    _validate_integer(precision, func_name, "MGRS precision")
     if not (0 <= precision <= 5):
         raise ValueError(
             _warn(

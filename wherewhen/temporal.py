@@ -67,6 +67,7 @@ from shapely.geometry import Point
 from wherewhen._messages import warn as _warn
 from wherewhen._validators import (
     _validate_datetime,
+    _validate_number,
     _validate_point,
     _validate_string,
 )
@@ -247,7 +248,7 @@ def epoch_to_datetime(value: Union[int, float]) -> datetime:
     Raises
     ------
     TypeError
-        If *value* is not an ``int`` or ``float``.
+        If *value* is not an ``int`` or ``float`` (``bool`` included).
 
     See Also
     --------
@@ -261,13 +262,7 @@ def epoch_to_datetime(value: Union[int, float]) -> datetime:
     >>> epoch_to_datetime(1714950400000).year   # milliseconds
     2024
     """
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise TypeError(
-            _warn(
-                "epoch_to_datetime",
-                f"Expected int or float, got {type(value).__name__}.",
-            )
-        )
+    _validate_number(value, "epoch_to_datetime", "Epoch")
     seconds = value / 1000.0 if abs(value) >= _EPOCH_MS_THRESHOLD else value
     try:
         return datetime.fromtimestamp(seconds, tz=timezone.utc)
