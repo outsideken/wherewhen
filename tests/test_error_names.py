@@ -120,6 +120,10 @@ MORE_BAD_CALLS = [
     ("coordinate_to_point", lambda: geometry.coordinate_to_point("1C")),
     ("coordinate_to_point", lambda: geometry.coordinate_to_point("99XXX0000000000")),
     ("cn_bd09_to_wgs84", lambda: crs.cn_bd09_to_wgs84(Point(-180, -90))),
+    # Range checks after parsing go through the shared validators.
+    ("dms_to_point", lambda: geometry.dms_to_point("0°0'0\" N 181°0'0\" E")),
+    ("ddm_to_point", lambda: geometry.ddm_to_point("95°0.000'N 0°0.000'E")),
+    ("box_to_polygon", lambda: geometry.box_to_polygon(12345)),
     ("convert_crs", lambda: crs.convert_crs(Point(-180, -90), "BD09", "WGS84")),
 ]
 
@@ -185,6 +189,21 @@ EXCEPTION_CLASSES = [
     (TypeError, lambda: geometry.geometry_to_box("x")),
     (TypeError, lambda: geometry.unwrap_single_collection("POINT (1 1)")),
     (TypeError, lambda: geometry.demote_single_multi("POINT (1 1)")),
+    # Wrong type is TypeError everywhere, via _validate_number (bool included).
+    (TypeError, lambda: geometry.normalize_longitude(True)),
+    (TypeError, lambda: geometry.normalize_latlon(True, 0.0)),
+    (TypeError, lambda: geometry.point_at_distance(ORIGIN, "x", 0.0)),
+    (TypeError, lambda: geometry.point_at_distance(ORIGIN, True, 0.0)),
+    (TypeError, lambda: geometry.point_at_distance(ORIGIN, 1.0, "x")),
+    (ValueError, lambda: geometry.point_at_distance(ORIGIN, -1.0, 0.0)),
+    (TypeError, lambda: geometry.spherical_weighted_centroid([ORIGIN], ["x"])),
+    (TypeError, lambda: geometry.spherical_weighted_centroid([ORIGIN], [True])),
+    (ValueError, lambda: geometry.spherical_weighted_centroid([ORIGIN], [-1.0])),
+    (TypeError, lambda: geometry.point_to_mgrs(ORIGIN, precision=True)),
+    (TypeError, lambda: temporal.epoch_to_datetime(True)),
+    (TypeError, lambda: geometry.box_to_polygon(12345)),
+    (ValueError, lambda: geometry.box_to_polygon("")),
+    (ValueError, lambda: geometry.box_to_polygon("BOX(0 95, 1 96)")),
     (TypeError, lambda: crs.convert_crs(ORIGIN, "EPSG:4326", 123)),
     (TypeError, lambda: geometry.latlon_to_point(None)),
     (TypeError, lambda: geometry.latlon_to_point(5)),

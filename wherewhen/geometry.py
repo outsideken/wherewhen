@@ -113,6 +113,8 @@ from wherewhen._validators import (
     _validate_dms,
     _validate_ddm_pair,
     _validate_geometry,
+    _validate_number,
+    _validate_string,
 )
 
 __all__ = [
@@ -230,13 +232,7 @@ def _dd_to_ddm(dd: float, is_lat: bool) -> str:
 
 def _normalize_longitude(lon, lon_range: str, func_name: str) -> float:
     """Body of :func:`normalize_longitude`; errors name *func_name*."""
-    if not isinstance(lon, (int, float)):
-        raise TypeError(
-            _warn(
-                func_name,
-                f"Longitude must be a number, got {type(lon).__name__}.",
-            )
-        )
+    _validate_number(lon, func_name, "Longitude")
     if lon_range == "[-180,180]":
         wrapped = math.fmod(float(lon) + 180.0, 360.0)
         if wrapped < 0.0:
@@ -283,7 +279,7 @@ def normalize_longitude(
     Raises
     ------
     TypeError
-        If *lon* is not a number.
+        If *lon* is not a number (``bool`` included).
     ValueError
         If *lon_range* is not supported.
 
@@ -337,7 +333,7 @@ def normalize_latlon(
     Raises
     ------
     TypeError
-        If *lat* or *lon* is not a number.
+        If *lat* or *lon* is not a number (``bool`` included).
 
     See Also
     --------
@@ -355,20 +351,8 @@ def normalize_latlon(
     >>> normalize_latlon(45, 190)
     (45.0, -170.0)
     """
-    if not isinstance(lat, (int, float)):
-        raise TypeError(
-            _warn(
-                "normalize_latlon",
-                f"Latitude must be a number, got {type(lat).__name__}.",
-            )
-        )
-    if not isinstance(lon, (int, float)):
-        raise TypeError(
-            _warn(
-                "normalize_latlon",
-                f"Longitude must be a number, got {type(lon).__name__}.",
-            )
-        )
+    _validate_number(lat, "normalize_latlon", "Latitude")
+    _validate_number(lon, "normalize_latlon", "Longitude")
 
     lat_f = float(lat)
     lon_f = float(lon)
@@ -762,10 +746,11 @@ def point_at_distance(
     Raises
     ------
     TypeError
-        If *pt* is not a Shapely ``Point``.
+        If *pt* is not a Shapely ``Point``, or *distance* or *bearing* is not
+        a number (``bool`` included).
     ValueError
-        If *pt* coordinates are out of bounds, if *distance* is negative, if
-        *bearing* is not numeric, or if *units* is unsupported.
+        If *pt* coordinates are out of bounds, if *distance* is negative, or
+        if *units* is unsupported.
 
     See Also
     --------
@@ -784,20 +769,15 @@ def point_at_distance(
     True
     """
     _validate_point(pt, func_name="point_at_distance")
-    if isinstance(distance, bool) or not isinstance(distance, (int, float)) or distance < 0:
+    _validate_number(distance, "point_at_distance", "distance")
+    if distance < 0:
         raise ValueError(
             _warn(
                 "point_at_distance",
                 f"distance must be a non-negative number, got {distance!r}.",
             )
         )
-    if isinstance(bearing, bool) or not isinstance(bearing, (int, float)):
-        raise ValueError(
-            _warn(
-                "point_at_distance",
-                f"bearing must be a real number, got {bearing!r}.",
-            )
-        )
+    _validate_number(bearing, "point_at_distance", "bearing")
     if distance == 0:
         return Point(pt.x, pt.y)
 
@@ -851,7 +831,8 @@ def spherical_weighted_centroid(
     Raises
     ------
     TypeError
-        If any element of *points* is not a Shapely ``Point``.
+        If any element of *points* is not a Shapely ``Point``, or any weight
+        is not a number (``bool`` included).
     ValueError
         If *points* and *weights* differ in length, if no points are given,
         if any weight is negative, or if the total weight is zero.
@@ -896,13 +877,7 @@ def spherical_weighted_centroid(
     total_weight = 0.0
     for pt, weight in zip(points, weights):
         _validate_point(pt, func_name="spherical_weighted_centroid")
-        if isinstance(weight, bool) or not isinstance(weight, (int, float)):
-            raise ValueError(
-                _warn(
-                    "spherical_weighted_centroid",
-                    f"Each weight must be a real number, got {weight!r}.",
-                )
-            )
+        _validate_number(weight, "spherical_weighted_centroid", "Each weight")
         if weight < 0:
             raise ValueError(
                 _warn(
@@ -1028,14 +1003,8 @@ def _dms_to_point(dms_str: str, return_latlon: bool=False, debug: bool=False, *,
     lon_sign = 1.0 if g["lon_dir"].upper() == "E" else -1.0
     lon_dd = lon_sign * (lon_deg + lon_min / 60.0 + lon_sec / 3600.0)
 
-    if not (-90 <= lat_dd <= 90):
-        raise ValueError(
-            _warn(func_name, f"Latitude out of range: {lat_dd}")
-        )
-    if not (-180 <= lon_dd <= 180):
-        raise ValueError(
-            _warn(func_name, f"Longitude out of range: {lon_dd}")
-        )
+    _validate_latitude(lat_dd, func_name=func_name)
+    _validate_longitude(lon_dd, func_name=func_name)
 
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
 
@@ -1115,14 +1084,8 @@ def _ddm_to_point(ddm_str: str, return_latlon: bool=False, *, func_name: str = "
         float(g["lon_deg"]) + float(g["lon_min"]) / 60.0
     )
 
-    if not (-90.0 <= lat_dd <= 90.0):
-        raise ValueError(
-            _warn(func_name, f"Latitude out of range: {lat_dd}")
-        )
-    if not (-180.0 <= lon_dd <= 180.0):
-        raise ValueError(
-            _warn(func_name, f"Longitude out of range: {lon_dd}")
-        )
+    _validate_latitude(lat_dd, func_name=func_name)
+    _validate_longitude(lon_dd, func_name=func_name)
 
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
 
@@ -1374,7 +1337,7 @@ def point_to_mgrs(pt: Point, precision: int = 5) -> str:
     ------
     TypeError
         If *pt* is not a :class:`shapely.geometry.Point`, or *precision*
-        is not an ``int``.
+        is not an ``int`` (``bool`` included).
     ValueError
         If *pt* coordinates are outside WGS-84 bounds, or *precision*
         falls outside [0, 5].
@@ -1507,7 +1470,7 @@ def box_to_polygon(box_str: str) -> Polygon:
     TypeError
         If *box_str* is not a ``str``.
     ValueError
-        If *box_str* does not match the expected BOX format, or if the
+        If *box_str* is empty, does not match the expected BOX format, or if the
         extracted coordinates are outside WGS-84 bounds.
 
     See Also
@@ -1520,13 +1483,7 @@ def box_to_polygon(box_str: str) -> Polygon:
     >>> poly.bounds
     (-0.14, 51.49, -0.11, 51.52)
     """
-    if not isinstance(box_str, str):
-        raise TypeError(
-            _warn(
-                "box_to_polygon",
-                f"Expected a str, got {type(box_str).__name__}.",
-            )
-        )
+    _validate_string(box_str, func_name="box_to_polygon")
     match = _BOX_PATTERN.search(box_str.strip())
     if not match:
         raise ValueError(

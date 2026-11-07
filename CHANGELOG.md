@@ -20,6 +20,24 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   ``geometry_to_box``, ``get_ratio`` and ``get_bounds`` / ``get_polygon`` use it
   in place of their own copies of that check. Same errors as before, except
   ``geometry_to_box`` now says "shapely" in lower case like the others.
+- ``_validators._validate_number`` and ``_validate_integer``: type checks
+  that reject ``bool`` (Python counts ``True`` as the integer 1).
+
+### Changed
+- A wrong-type argument now raises ``TypeError`` wherever wherewhen checks for
+  a number, as agreed on #5 (``TypeError`` = wrong type, ``ValueError`` = bad
+  value). Before, the latitude and longitude validators, ``point_at_distance``
+  (``distance``, ``bearing``) and ``spherical_weighted_centroid`` (weights)
+  raised ``ValueError``.
+- ``True`` / ``False`` are no longer accepted as numbers by the latitude,
+  longitude and MGRS-precision validators, ``normalize_longitude`` or
+  ``normalize_latlon``.
+- Hand-written checks now use the shared validators: the number checks above
+  and in ``epoch_to_datetime`` use ``_validate_number``; ``box_to_polygon``
+  uses ``_validate_string`` (an empty string now says so); and
+  ``dms_to_point`` / ``ddm_to_point`` check parsed coordinates with
+  ``_validate_latitude`` / ``_validate_longitude`` ("Latitude must be in
+  [-90, 90], got 95.0." in place of "Latitude out of range: 95.0").
 
 ### Changed
 - The version is typed in one place, ``wherewhen/_version.py`` (#9).
