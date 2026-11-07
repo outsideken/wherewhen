@@ -39,6 +39,25 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   ``_validate_latitude`` / ``_validate_longitude`` ("Latitude must be in
   [-90, 90], got 95.0." in place of "Latitude out of range: 95.0").
 
+### Fixed
+- ``dms_to_point`` / ``ddm_to_point`` (and ``coordinate_to_point``) no longer
+  misread coordinates without an error. The regexes were unanchored and
+  limited latitude degrees to 0–89, so ``90°0'0" N`` (the North Pole) read
+  as latitude 0, ``95°`` as 5, ``89°59'60"`` as 59.1, ``51°75'`` as 75 and
+  ``51.5N`` as 51°5'; DDM accepted 75 minutes. The pair is now read as
+  numbers and hemisphere letters by three small helpers
+  (``_split_hemisphere_pair``, ``_unpack_packed_group``,
+  ``_sexagesimal_to_degrees``). Each part is read whole, only the last part
+  may have a decimal, minutes and seconds must be below 60, and anything
+  that doesn't fit raises ``ValueError``, including a sign (``-51``), a
+  leading dot (``.5``) or a decimal comma (``0,5``), which were silently
+  dropped or split; N/S and E/W give the sign. Packed forms (``513026N
+  0000740W``) still work; ``ddm_to_point`` now also reads packed DDM
+  (``5130.440N 00007.667W``).
+- ``point_to_dms`` / ``point_to_ddm`` no longer print ``60.00"`` or
+  ``60.000'``: they round to the printed precision first and carry, so
+  their output always parses back.
+
 ### Changed
 - The version is typed in one place, ``wherewhen/_version.py`` (#9).
   ``pyproject.toml`` reads it (``dynamic = ["version"]``); the README's version
