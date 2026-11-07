@@ -10,6 +10,15 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] — 2026-11-07
+
+Minor version because some calls that worked before now raise: a wrong-type
+number argument raises ``TypeError`` (was ``ValueError``), ``True``/``False``
+are no longer numbers, and DMS/DDM strings that used to be misread now raise
+``ValueError``. See Changed and Fixed.
+
 ### Added
 - ``geometry.unwrap_single_collection`` and ``geometry.demote_single_multi``:
   two single-job bricks that return the only member of a one-member
@@ -38,6 +47,11 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   ``dms_to_point`` / ``ddm_to_point`` check parsed coordinates with
   ``_validate_latitude`` / ``_validate_longitude`` ("Latitude must be in
   [-90, 90], got 95.0." in place of "Latitude out of range: 95.0").
+- The version is typed in one place, ``wherewhen/_version.py`` (#9).
+  ``pyproject.toml`` reads it (``dynamic = ["version"]``); the README's version
+  and test-count badges are replaced by the CI badge; notebook 01's title no
+  longer states a version. ``tests/test_one_version.py`` replaces the check that
+  ``pyproject.toml`` and ``_version.py`` agree, and fails if a copy comes back.
 
 ### Fixed
 - ``dms_to_point`` / ``ddm_to_point`` (and ``coordinate_to_point``) no longer
@@ -55,13 +69,6 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 - ``point_to_dms`` / ``point_to_ddm`` no longer print ``60.00"`` or
   ``60.000'``: they round to the printed precision first and carry, so
   their output always parses back.
-
-### Changed
-- The version is typed in one place, ``wherewhen/_version.py`` (#9).
-  ``pyproject.toml`` reads it (``dynamic = ["version"]``); the README's version
-  and test-count badges are replaced by the CI badge; notebook 01's title no
-  longer states a version. ``tests/test_one_version.py`` replaces the check that
-  ``pyproject.toml`` and ``_version.py`` agree, and fails if a copy comes back.
 
 ---
 
