@@ -10,6 +10,27 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Fixed
+- ``get_solar_data`` now reports the local day at the point. It used the UTC
+  date and computed in UTC, so away from UTC sunrise and sunset came from
+  different days: Tokyo on 2026-04-24 at 08:00 local gave a Day Length of
+  -10.6 h, Honolulu -11.2 h. Events (sunrise, sunset, solar noon, twilight)
+  are now on the local calendar date. An aware ``eval_dt`` is converted to
+  the location's timezone before its date is taken; a naive one's date is
+  used as written (unchanged).
+- ``get_solar_data`` no longer raises astral's ``ValueError`` during polar
+  day or polar night. ``Sunrise`` / ``Sunset`` are ``None`` and
+  ``Day Length (Hours)`` is ``24.0`` or ``0.0``, as the docstring said. On
+  the first or last day of a polar period it counts from or to midnight.
+- ``get_solar_data`` finds sunrises, sunsets and twilight times that astral
+  misses when the local day is split across two UTC days (McMurdo's sunrise
+  on 2026-08-20), by bisecting the sun's height. These fallback times agree
+  with astral's own to within about a minute.
+- ``Day Length (Hours)`` is measured in UTC, so a DST change that day is
+  counted.
+- ``get_lunar_data`` uses the same local date, so moonrise and moonset are
+  for the local day.
+
 ---
 
 ## [0.3.0] — 2026-11-07

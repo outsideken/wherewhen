@@ -122,6 +122,103 @@ class TestSolarLunar:
         lunar = get_lunar_data(LONDON_PT, dt)
         assert isinstance(lunar, dict)
 
+
+class TestSolarLocalDay:
+    """get_solar_data reports the local day at the point, everywhere on Earth."""
+
+    TOKYO = (139.69, 35.69)
+    HONOLULU = (-157.86, 21.31)
+    AUCKLAND = (174.76, -36.85)
+    SVALBARD = (15.6, 78.2)
+    MCMURDO = (166.67, -77.85)
+    TROMSO = (18.96, 69.65)
+
+    @staticmethod
+    def _solar(lonlat, dt):
+        from shapely.geometry import Point
+        from wherewhen.temporal import get_solar_data
+        return get_solar_data(Point(*lonlat), dt)
+
+    @pytest.mark.parametrize("lonlat", [TOKYO, HONOLULU, AUCKLAND, (-0.1278, 51.5074)])
+    def test_events_fall_on_the_local_date_in_order(self, lonlat):
+        s = self._solar(lonlat, datetime(2026, 4, 24))
+        assert s["Evaluation Date"].isoformat() == "2026-04-24"
+        for key in ("Sunrise", "Solar Noon", "Sunset"):
+            assert s[key].date().isoformat() == "2026-04-24", key
+        assert s["Sunrise"] < s["Solar Noon"] < s["Sunset"]
+        assert 0 < s["Day Length (Hours)"] < 24
+        civil = s["Civil"]
+        assert civil["Dawn"] < s["Sunrise"] and s["Sunset"] < civil["Dusk"]
+
+    def test_aware_datetime_uses_the_local_date(self):
+        # 08:00 in Tokyo on the 24th is 23:00 UTC on the 23rd; the day is the 24th.
+        jst = timezone(timedelta(hours=9))
+        s = self._solar(self.TOKYO, datetime(2026, 4, 24, 8, 0, tzinfo=jst))
+        assert s["Evaluation Date"].isoformat() == "2026-04-24"
+        assert s["Sunrise"].date().isoformat() == "2026-04-24"
+        assert 13 < s["Day Length (Hours)"] < 14
+
+    def test_naive_datetime_uses_its_date_as_written(self):
+        # Midnight UTC on the 24th is still the 23rd in Honolulu; the date
+        # written is the one used.
+        s = self._solar(self.HONOLULU, datetime(2026, 4, 24))
+        assert s["Evaluation Date"].isoformat() == "2026-04-24"
+
+    @pytest.mark.parametrize("lonlat, month_day, hours", [
+        (SVALBARD, (6, 21), 24.0),    # polar day
+        (SVALBARD, (12, 21), 0.0),    # polar night
+        (MCMURDO, (6, 21), 0.0),      # southern polar night
+        (MCMURDO, (12, 21), 24.0),    # southern polar day
+        (TROMSO, (11, 28), 0.0),      # first day of polar night
+    ])
+    def test_polar_day_and_night_do_not_raise(self, lonlat, month_day, hours):
+        s = self._solar(lonlat, datetime(2026, *month_day))
+        assert s["Sunrise"] is None and s["Sunset"] is None
+        assert s["Solar Noon"] is not None
+        assert s["Day Length (Hours)"] == hours
+
+    def test_day_after_polar_day_counts_from_midnight(self):
+        # Tromsø 2026-05-17: the sun rises at about 01:20 and does not set.
+        s = self._solar(self.TROMSO, datetime(2026, 5, 17))
+        assert s["Sunrise"] is not None and s["Sunset"] is None
+        assert 22 < s["Day Length (Hours)"] < 23
+
+    def test_last_short_day_before_polar_night(self):
+        # Tromsø 2026-11-27: the sun's centre clears -0.833° for about 20
+        # minutes around noon.  astral reports no sunrise; before the fix
+        # that day came out as 24 h of daylight.
+        s = self._solar(self.TROMSO, datetime(2026, 11, 27))
+        assert s["Sunrise"] < s["Solar Noon"] < s["Sunset"]
+        assert 0 < s["Day Length (Hours)"] < 1
+
+    def test_sunrise_astral_misses_is_still_found(self):
+        # astral finds no McMurdo sunrise on 2026-08-20 (it falls across a
+        # UTC day boundary); the sun does rise, at about 11:52 local.
+        s = self._solar(self.MCMURDO, datetime(2026, 8, 20))
+        assert s["Sunrise"] is not None
+        assert s["Sunrise"].date().isoformat() == "2026-08-20"
+        assert s["Sunrise"] < s["Solar Noon"] < s["Sunset"]
+        assert 1.5 < s["Day Length (Hours)"] < 3
+
+    @pytest.mark.parametrize("lonlat", [TOKYO, HONOLULU, AUCKLAND, SVALBARD, MCMURDO, TROMSO])
+    def test_a_year_of_day_lengths_stays_in_range(self, lonlat):
+        for i in range(0, 366, 3):
+            day = datetime(2026, 1, 1) + timedelta(days=i)
+            s = self._solar(lonlat, day)
+            assert s["Evaluation Date"] == day.date()
+            assert 0.0 <= s["Day Length (Hours)"] <= 24.0, day.date()
+            for key in ("Sunrise", "Sunset"):
+                if s[key] is not None:
+                    assert s[key].date() == day.date(), (key, day.date())
+
+    def test_lunar_data_uses_the_local_date(self):
+        from shapely.geometry import Point
+        from wherewhen.temporal import get_lunar_data
+        jst = timezone(timedelta(hours=9))
+        m = get_lunar_data(Point(*self.TOKYO), datetime(2026, 4, 24, 8, 0, tzinfo=jst))
+        assert m["Evaluation Date"].isoformat() == "2026-04-24"
+
+
 class TestWithoutTimezonefinder:
     """timezonefinder is a soft dependency: only coordinate lookups need it."""
 

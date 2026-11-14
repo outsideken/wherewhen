@@ -92,7 +92,7 @@ try:
     import astral
     from astral import Observer
     from astral.moon import phase as _astral_moon_phase
-    from astral.sun import dawn, dusk, sun
+    from astral.sun import dawn, dusk, elevation as _sun_elevation, noon, sunrise, sunset
     _ASTRAL_AVAILABLE = True
 except ImportError:
     _ASTRAL_AVAILABLE = False
@@ -204,21 +204,109 @@ def _require_astro_deps(caller: str) -> None:
         )
 
 
+def _local_date(eval_dt: datetime, local_tz):
+    """Return the calendar date *eval_dt* falls on at the location.
+
+    A naive datetime's own date is used as written; an aware one is first
+    converted to *local_tz*, so 08:00 in Tokyo is that Tokyo day, not the
+    previous UTC day.
+    """
+    if is_dt_naive(eval_dt):
+        return eval_dt.date()
+    return eval_dt.astimezone(local_tz).date()
+
+
 def _astro_context(pt: Point, eval_dt: datetime):
     """Return (eval_dt_utc, tz_name, tz_offset, local_tz, target_date) for astro calculations."""
     eval_dt_utc = ensure_utc(eval_dt)
     tz_name, tz_offset = point_to_tz_offset(pt, eval_dt_utc)
     local_tz = ZoneInfo(tz_name)
-    target_date = eval_dt_utc.date()
+    target_date = _local_date(eval_dt, local_tz)
     return eval_dt_utc, tz_name, tz_offset, local_tz, target_date
 
 
-def _safe_twilight(func, obs, target_date, local_tz, depression: float):
-    """Return a localised twilight datetime, or None if the sun never crosses *depression*."""
-    try:
-        return func(obs, date=target_date, depression=depression).astimezone(local_tz)
-    except ValueError:
+# Geometric sun height at sunrise/sunset: -0.833° = refraction + the sun's
+# radius, the horizon astral uses.
+_HORIZON_DEG: float = -0.833
+
+
+def _height(obs, when: datetime) -> float:
+    """Geometric height of the sun's centre in degrees (no refraction)."""
+    return _sun_elevation(obs, when, with_refraction=False)
+
+
+def _find_crossing(obs, start: datetime, end: datetime, height: float) -> Optional[datetime]:
+    """Return when the sun crosses *height* between *start* and *end*, by bisection.
+
+    Only answers when the sun is on opposite sides of *height* at the two
+    ends, so it finds one crossing or none.
+    """
+    lo, hi = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+    lo_above = _height(obs, lo) > height
+    if lo_above == (_height(obs, hi) > height):
         return None
+    for _ in range(40):  # 12 h / 2**40 is far below a microsecond
+        mid = lo + (hi - lo) / 2
+        if (_height(obs, mid) > height) == lo_above:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + (hi - lo) / 2).astimezone(start.tzinfo)
+
+
+def _sun_event(func, obs, target_date, local_tz, solar_noon: datetime,
+               height: float, rising: bool, **kwargs) -> Optional[datetime]:
+    """Return a solar event on the local *target_date*, or None if it doesn't happen.
+
+    astral is asked first.  astral finds one event per UTC day, and can miss
+    one whose local day is split across two UTC days (McMurdo's sunrise on
+    2026-08-20 is an example).  If astral finds none but the sun is on
+    opposite sides of *height* at local midnight and solar noon (rising) or
+    at solar noon and the next midnight (setting), the crossing is found by
+    bisection instead.
+    """
+    try:
+        return func(obs, date=target_date, tzinfo=local_tz, **kwargs)
+    except ValueError:
+        pass
+    midnight = datetime(target_date.year, target_date.month, target_date.day, tzinfo=local_tz)
+    if rising:
+        return _find_crossing(obs, midnight, solar_noon, height)
+    next_day = target_date + timedelta(days=1)
+    next_midnight = datetime(next_day.year, next_day.month, next_day.day, tzinfo=local_tz)
+    return _find_crossing(obs, solar_noon, next_midnight, height)
+
+
+def _hours_between(a: datetime, b: datetime) -> float:
+    """Elapsed hours from *a* to *b*, counted in UTC so DST changes are honoured."""
+    return (b.astimezone(timezone.utc) - a.astimezone(timezone.utc)).total_seconds() / 3600
+
+
+def _day_length_hours(obs, target_date, local_tz, rise, set_, solar_noon) -> float:
+    """Hours of daylight in the local day, from its sunrise and sunset.
+
+    With neither a sunrise nor a sunset that day, it is polar day (24) or
+    polar night (0), told apart by the sun's height at solar noon.  (Once
+    :func:`_sun_event` has looked for a crossing itself, no sunrise means the
+    sun was either up at midnight and noon, or down at noon.)  With only one
+    of them (the first or last day of
+    a polar period), daylight runs from midnight to the sunset, or from the
+    sunrise to the next midnight.  A sunset earlier than the sunrise counts
+    the daylight at both ends of the day.
+    """
+    midnight = datetime(target_date.year, target_date.month, target_date.day, tzinfo=local_tz)
+    next_day = target_date + timedelta(days=1)
+    next_midnight = datetime(next_day.year, next_day.month, next_day.day, tzinfo=local_tz)
+    if rise is None and set_ is None:
+        return 24.0 if _height(obs, solar_noon) > _HORIZON_DEG else 0.0
+    if rise is None:
+        return round(_hours_between(midnight, set_), 3)
+    if set_ is None:
+        return round(_hours_between(rise, next_midnight), 3)
+    hours = _hours_between(rise, set_)
+    if hours < 0:
+        hours += _hours_between(midnight, next_midnight)
+    return round(hours, 3)
 
 
 # ── Datetime helpers ──────────────────────────────────────────────────────────
@@ -679,16 +767,21 @@ def get_solar_data(
     (Civil, Nautical, Astronomical) using the ``astral`` library.  All times
     in the returned dictionary are localised to the geographic timezone of *pt*.
 
-    At extreme latitudes the sun may not cross some depression angles during
-    polar day or polar night; those values are ``None``.
+    Events are for the *local* calendar day at *pt*.  At extreme latitudes
+    the sun may not rise, set, or cross some depression angles that day
+    (polar day or polar night); those values are ``None``, and
+    ``'Day Length (Hours)'`` is ``24.0`` or ``0.0``.
 
     Parameters
     ----------
     pt : shapely.geometry.Point
         WGS-84 location (``x = longitude``, ``y = latitude``).
     eval_dt : datetime
-        Reference datetime.  Only the *date* component is used for solar
-        calculations.  Naive datetimes are assumed to be UTC.
+        Reference datetime; picks the day.  An aware datetime is converted
+        to the location's timezone and that local date is used (08:00 in
+        Tokyo is that Tokyo day).  A naive datetime's date is used as
+        written.  The UTC offset reported is the one in effect at *eval_dt*
+        (naive = UTC).
     elevation : float, optional
         Observer elevation above sea level in metres.  Default ``0.0``.
     include_twilight : bool, optional
@@ -737,17 +830,18 @@ def get_solar_data(
 
     eval_dt_utc, tz_name, tz_offset, local_tz, target_date = _astro_context(pt, eval_dt)
     obs = Observer(latitude=pt.y, longitude=pt.x, elevation=elevation)
-    s_raw = sun(obs, date=target_date)
-
-    day_length = round(
-        (s_raw["sunset"] - s_raw["sunrise"]).total_seconds() / 3600, 3
-    )
+    solar_noon = noon(obs, date=target_date, tzinfo=local_tz)
+    rise = _sun_event(sunrise, obs, target_date, local_tz, solar_noon, _HORIZON_DEG, rising=True)
+    set_ = _sun_event(sunset, obs, target_date, local_tz, solar_noon, _HORIZON_DEG, rising=False)
+    day_length = _day_length_hours(obs, target_date, local_tz, rise, set_, solar_noon)
 
     if include_twilight:
         twilights = {
             name: {
-                "Dawn":       _safe_twilight(dawn, obs, target_date, local_tz, angle),
-                "Dusk":       _safe_twilight(dusk, obs, target_date, local_tz, angle),
+                "Dawn":       _sun_event(dawn, obs, target_date, local_tz, solar_noon,
+                                         -angle, rising=True, depression=angle),
+                "Dusk":       _sun_event(dusk, obs, target_date, local_tz, solar_noon,
+                                         -angle, rising=False, depression=angle),
                 "Depression": angle,
             }
             for name, angle in ASTRAL_DEPRESSION_ANGLES.items()
@@ -761,9 +855,9 @@ def get_solar_data(
         "Timezone Name":           tz_name,
         "Timezone Offset (Hours)": tz_offset,
         "Elevation (m)":           elevation,
-        "Sunrise":                 s_raw["sunrise"].astimezone(local_tz),
-        "Sunset":                  s_raw["sunset"].astimezone(local_tz),
-        "Solar Noon":              s_raw["noon"].astimezone(local_tz),
+        "Sunrise":                 rise,
+        "Sunset":                  set_,
+        "Solar Noon":              solar_noon,
         "Day Length (Hours)":      day_length,
         **twilights,
     }
@@ -790,8 +884,9 @@ def get_lunar_data(
     pt : shapely.geometry.Point
         WGS-84 location (``x = longitude``, ``y = latitude``).
     eval_dt : datetime
-        Reference datetime.  Only the *date* component is used.
-        Naive datetimes are assumed to be UTC.
+        Reference datetime; picks the local day at *pt*, as in
+        :func:`get_solar_data` (aware → converted to the location's
+        timezone first; naive → its date as written).
     elevation : float, optional
         Observer elevation in metres.  Default ``0.0``.
     include_riseset : bool, optional
