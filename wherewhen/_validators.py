@@ -163,9 +163,27 @@ def _validate_geometry(geom, func_name: str = "validate_geometry") -> None:
 
 # ── MGRS ──────────────────────────────────────────────────────────────────────
 
-def _validate_mgrs(mgrs_str: str, func_name: str = "validate_mgrs") -> None:
+# MGRS is four groups: zone (1-60) and latitude band, 100 km square, then the
+# easting and northing digits. Whitespace may separate the groups and nothing
+# else. Band letters are C-X and square letters A-Z, neither using I or O.
+_MGRS_PARTS = re.compile(
+    r"(\d{1,2})\s*([C-HJ-NP-X])\s*([A-HJ-NP-Z]{2})(?:\s*(\d+)(?:\s+(\d+))?)?"
+)
+
+
+def _canonical_mgrs(mgrs_str: str, func_name: str = "validate_mgrs") -> str:
     """
-    Raise if *mgrs_str* is not a structurally valid MGRS coordinate string.
+    Return *mgrs_str* as one upper-case string with no whitespace.
+
+    Spaces, tabs and case are accepted between the four MGRS groups
+    (``"18t wl 83960 07450"`` -> ``"18TWL8396007450"``). When the easting and
+    northing are written apart they must have the same number of digits, since
+    the space is the only thing marking where one ends: ``"18TWL 8396 007450"``
+    raises instead of being read as 83960 / 07450. Run together, the digits
+    must be an even count of at most 10.
+
+    Raises ``TypeError`` if *mgrs_str* is not a non-empty string and
+    ``ValueError`` for anything that is not a well-formed MGRS reference.
     """
     if not isinstance(mgrs_str, str) or not mgrs_str.strip():
         raise TypeError(
@@ -175,30 +193,51 @@ def _validate_mgrs(mgrs_str: str, func_name: str = "validate_mgrs") -> None:
                 f"got {type(mgrs_str).__name__}.",
             )
         )
-    cleaned = re.sub(r"\s+", "", mgrs_str.strip().upper())
-    if len(cleaned) < 3:
+    match = _MGRS_PARTS.fullmatch(mgrs_str.strip().upper())
+    if match is None:
         raise ValueError(
             _warn(
                 func_name,
-                f"MGRS string too short (got {len(cleaned)} chars): {mgrs_str!r}",
+                "Invalid MGRS format: expected zone and band, 100 km square, then "
+                "easting and northing digits (I and O are not MGRS letters), got "
+                f"{mgrs_str!r}.",
             )
         )
-    if not re.match(r"^\d{1,2}[C-X][A-Z]{2}(\d{0,10})$", cleaned):
-        raise ValueError(
-            _warn(
-                func_name,
-                f"Invalid MGRS format (wrong structure or forbidden letters): "
-                f"{mgrs_str!r}",
+    zone, band, square, first, second = match.groups()
+    if not 1 <= int(zone) <= 60:
+        raise ValueError(_warn(func_name, f"Invalid UTM zone {int(zone)} (must be 1–60)."))
+    first = first or ""
+    if second is not None:
+        if len(first) != len(second) or len(first) > 5:
+            raise ValueError(
+                _warn(
+                    func_name,
+                    "MGRS easting and northing must have the same number of digits "
+                    f"(1–5 each), got {len(first)} and {len(second)} in {mgrs_str!r}.",
+                )
             )
-        )
-    zone = int(re.match(r"^(\d{1,2})", cleaned).group(1))
-    if not (1 <= zone <= 60):
-        raise ValueError(
-            _warn(
-                func_name,
-                f"Invalid UTM zone {zone} (must be 1–60).",
+        digits = first + second
+    else:
+        digits = first
+        if len(digits) % 2 or len(digits) > 10:
+            raise ValueError(
+                _warn(
+                    func_name,
+                    "MGRS needs an even number of digits (at most 10), half easting "
+                    f"and half northing, got {len(digits)} in {mgrs_str!r}.",
+                )
             )
-        )
+    return f"{zone}{band}{square}{digits}"
+
+
+def _validate_mgrs(mgrs_str: str, func_name: str = "validate_mgrs") -> None:
+    """
+    Raise if *mgrs_str* is not a well-formed MGRS coordinate string.
+
+    Same checks as :func:`_canonical_mgrs`, which also returns the string with
+    whitespace removed.
+    """
+    _canonical_mgrs(mgrs_str, func_name=func_name)
 
 
 def _validate_mgrs_precision(precision: int, func_name: str = "validate_mgrs_precision") -> None:

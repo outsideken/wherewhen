@@ -17,6 +17,22 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   reads one to six digits (so JEMA's ``.mmmZ`` parses) and returns a naive
   datetime because the ``Z`` is matched as text. The constant is unchanged:
   jematools re-exports it as part of its frozen API.
+- ``mgrs_to_point`` (and ``coordinate_to_point``) read MGRS written with
+  spaces, as on maps: ``"18T WL 83960 07450"`` gives the same point as
+  ``"18TWL8396007450"`` (#28). It raised the ``mgrs`` library's own
+  ``MGRSError``, because the validator stripped the spaces but the library
+  got the original string.
+- A malformed split is no longer silently misread: ``"18TWL 8396 007450"``
+  (4-digit easting, 6-digit northing) returned the corner of square
+  ``18TWL``, about 85 km away, with no error. Easting and northing written
+  apart must now have the same number of digits; run together, the digits
+  must be an even count of at most 10. Whitespace is accepted only between
+  the four groups (zone and band, 100 km square, easting, northing).
+- MGRS band and square letters ``I`` / ``O``, and references the library
+  can't place (such as a square letter past ``V``), raise a labelled
+  ``ValueError`` instead of the library's ``MGRSError``.
+  ``_validate_mgrs`` does the same checks, so h3tools' ``mgrs_to_h3`` and
+  ``geometry_to_h3`` and jematools get them too.
 
 ---
 
