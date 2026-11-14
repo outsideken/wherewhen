@@ -10,6 +10,15 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.4.1] — 2026-11-14
+
+Patch release. **MGRS written with spaces now gives the right point.** On
+0.4.0 any space after the 100 km square was silently read as that square's
+south-west corner (about 84 km off for ``18TWL…``), so check results from
+spaced MGRS input. Compact MGRS input is unchanged. See Fixed.
+
 ### Fixed
 - The ``ISO8601`` docstring said it gives millisecond precision. It doesn't:
   ``strftime`` writes six fractional digits (microseconds), and has no
@@ -17,17 +26,21 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   reads one to six digits (so JEMA's ``.mmmZ`` parses) and returns a naive
   datetime because the ``Z`` is matched as text. The constant is unchanged:
   jematools re-exports it as part of its frozen API.
-- ``mgrs_to_point`` (and ``coordinate_to_point``) read MGRS written with
-  spaces, as on maps: ``"18T WL 83960 07450"`` gives the same point as
-  ``"18TWL8396007450"`` (#28). It raised the ``mgrs`` library's own
-  ``MGRSError``, because the validator stripped the spaces but the library
-  got the original string.
-- A malformed split is no longer silently misread: ``"18TWL 8396 007450"``
-  (4-digit easting, 6-digit northing) returned the corner of square
-  ``18TWL``, about 85 km away, with no error. Easting and northing written
-  apart must now have the same number of digits; run together, the digits
-  must be an even count of at most 10. Whitespace is accepted only between
-  the four groups (zone and band, 100 km square, easting, northing).
+- ``mgrs_to_point`` (and ``coordinate_to_point``, and h3tools'
+  ``mgrs_to_h3``) read MGRS written with spaces, as on maps (#28). The
+  validator stripped the spaces but the ``mgrs`` library got the original
+  string. With a space after the 100 km square (``"18TWL 83960 07450"``,
+  ``"18TWL 8396007450"``) the library read only ``18TWL`` and returned the
+  square's south-west corner, (-75.00000, 40.65086), with no error; with a
+  space between band and square (``"18T WL 83960 07450"``) it raised its
+  own ``MGRSError``. All of these now give (-74.00598, 40.71369), the same
+  as ``"18TWL8396007450"``.
+- A split that can't be read unambiguously raises instead of being misread:
+  ``"18TWL 8396 007450"`` (4-digit easting, 6-digit northing) also returned
+  the square corner. Easting and northing written apart must now have the
+  same number of digits; run together, the digits must be an even count of
+  at most 10. Whitespace is accepted only between the four groups (zone and
+  band, 100 km square, easting, northing).
 - MGRS band and square letters ``I`` / ``O``, and references the library
   can't place (such as a square letter past ``V``), raise a labelled
   ``ValueError`` instead of the library's ``MGRSError``.
