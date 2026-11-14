@@ -21,8 +21,7 @@ ISO8601 : str
 TWILIGHT_DEPRESSION_ANGLES : dict
     Solar depression angles in degrees for the three recognised twilight
     phases: ``'Civil'`` (6°), ``'Nautical'`` (12°), and
-    ``'Astronomical'`` (18°).  ``ASTRAL_DEPRESSION_ANGLES`` is the same
-    dict under its old name, kept for existing callers.
+    ``'Astronomical'`` (18°).
 
 Functions
 ---------
@@ -76,7 +75,6 @@ from wherewhen._validators import (
 __all__ = [
     "ISO8601",
     "TWILIGHT_DEPRESSION_ANGLES",
-    "ASTRAL_DEPRESSION_ANGLES",
     "epoch_to_datetime",
     "convert_to_datetime",
     "is_dt_naive",
@@ -120,9 +118,6 @@ TWILIGHT_DEPRESSION_ANGLES: Dict[str, float] = {
     "Astronomical": 18.0,
 }
 
-# Old name, from when astral did the solar maths.  Same dict.
-ASTRAL_DEPRESSION_ANGLES: Dict[str, float] = TWILIGHT_DEPRESSION_ANGLES
-
 # Sun's centre at sunrise/sunset: -0.833° = refraction (34') + the sun's
 # radius (16'), measured with refraction switched off (pressure 0).
 _SUN_HORIZON_DEG: float = -0.833
@@ -133,10 +128,6 @@ _MOON_HORIZON_DEG: float = -34.0 / 60.0
 
 # Mean synodic month (new moon to new moon), in days.
 _SYNODIC_MONTH_DAYS: float = 29.530588853
-
-# "Phase Number" keeps the 0-28 scale astral used (0 = new, about 7 = first
-# quarter, 14 = full, 21 = last quarter): the share of this lunation gone, × 28.
-_PHASE_NUMBER_SCALE: float = 28.0
 
 # A principal phase (new, first quarter, full, last quarter) is named when
 # the evaluation moment is within this many hours of it.
@@ -959,21 +950,20 @@ def get_lunar_data(
     dict
         Keys: ``'Locality Point'``, ``'Evaluation Date'``,
         ``'Timezone Name'``, ``'Timezone Offset (Hours)'``,
-        ``'Elevation (m)'``, ``'Phase Number'``, ``'Phase Name'``,
+        ``'Elevation (m)'``, ``'Lunation (Fraction)'``, ``'Phase Name'``,
         ``'Moon Age (Days)'``, ``'Is Waxing'``, ``'Illumination (%)'``,
-        ``'Moonrise'``, ``'Moonset'``, ``'Ephem Available'``.
+        ``'Moonrise'``, ``'Moonset'``.
 
-        * ``'Moon Age (Days)'`` — days since the last new moon (0–29.5).
-        * ``'Phase Number'`` — the share of this lunation (new moon to
-          next new moon) gone, on astral's old 0–28 scale: 0 = new, about
-          7 = first quarter, 14 = full, 21 = last quarter.  Always below 28.
+        * ``'Lunation (Fraction)'`` — how far through this lunation (new
+          moon to next new moon) the moment is, in [0, 1): 0 = new moon,
+          about 0.25 = first quarter, 0.5 = full, 0.75 = last quarter.
+          Comparable across months of different lengths.
+        * ``'Moon Age (Days)'`` — days since the last new moon (0–29.9).
         * ``'Phase Name'`` — ``'New Moon'``, ``'First Quarter'``,
           ``'Full Moon'`` or ``'Last Quarter'`` within 12 hours of that
           moment, otherwise ``'Waxing Crescent'``, ``'Waxing Gibbous'``,
           ``'Waning Gibbous'`` or ``'Waning Crescent'``.
         * ``'Illumination (%)'`` — share of the disc lit.
-        * ``'Ephem Available'`` — always ``True`` (kept for existing
-          callers; ephem is now required).
 
     Raises
     ------
@@ -994,7 +984,7 @@ def get_lunar_data(
     >>> from shapely.geometry import Point
     >>> from datetime import datetime
     >>> data = get_lunar_data(Point(-0.1278, 51.5074), datetime(2026, 4, 24))
-    >>> 0 <= data["Phase Number"] <= 28
+    >>> 0.0 <= data["Lunation (Fraction)"] < 1.0
     True
     >>> 0.0 <= data["Illumination (%)"] <= 100.0
     True
@@ -1027,12 +1017,11 @@ def get_lunar_data(
         "Timezone Name":           tz_name,
         "Timezone Offset (Hours)": tz_offset,
         "Elevation (m)":           elevation,
-        "Phase Number":            round(_lunation_fraction(when) * _PHASE_NUMBER_SCALE, 2),
+        "Lunation (Fraction)":     round(_lunation_fraction(when), 4),
         "Phase Name":              _moon_phase_name(when, age, illumination, waxing),
         "Moon Age (Days)":         round(age, 1),
         "Is Waxing":               waxing,
         "Illumination (%)":        round(illumination, 1),
         "Moonrise":                moonrise,
         "Moonset":                 moonset,
-        "Ephem Available":         _EPHEM_AVAILABLE,
     }

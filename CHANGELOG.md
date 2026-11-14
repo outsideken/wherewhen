@@ -17,8 +17,8 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   stepped through the whole local day so every crossing is found; solar
   noon is the sun's transit. Times move by a few seconds (they were within
   about 5 s of ephem).
-- ``TWILIGHT_DEPRESSION_ANGLES`` is the new name for the twilight angles.
-  ``ASTRAL_DEPRESSION_ANGLES`` is still exported and is the same dict.
+- ``TWILIGHT_DEPRESSION_ANGLES`` replaces ``ASTRAL_DEPRESSION_ANGLES``
+  (same values; the old name is removed, see Removed).
 - The horizon dip for a raised observer uses the mean Earth radius
   (6 371 008.8 m, as ``geometry.EARTH_RADIUS_M``) in place of astral's
   6 356 900 m; the difference is under a second of sunrise at 2 000 m.
@@ -27,10 +27,11 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
     from astral's phase number with a 27-day cycle, and ran up to about
     8 points off (56.9 % on 2026-04-24 where the moon was 48.9 % lit at
     00:00 UTC).
-  - ``Moon Age (Days)`` is days since the last new moon (0–29.5). It was
+  - ``Moon Age (Days)`` is days since the last new moon (0–29.9). It was
     astral's 0–28 phase number, not days.
-  - ``Phase Number`` keeps astral's 0–28 scale (always below 28), now the
-    share of the current lunation gone × 28.
+  - New ``Lunation (Fraction)``: how far through the current lunation (new
+    moon to next new moon) the moment is, in [0, 1) — 0 new, about 0.25
+    first quarter, 0.5 full, 0.75 last quarter. Replaces ``Phase Number``.
   - ``Phase Name`` gives New Moon, First Quarter, Full Moon or Last Quarter
     within 12 hours of that moment, otherwise crescent or gibbous (under or
     over half lit), waxing or waning. ``Is Waxing`` is true from new moon
@@ -42,7 +43,15 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
     were the next rise and set after local midnight with no refraction, so
     a day without a moonrise or moonset reported the next day's; it is now
     ``None``.
-  - ``Ephem Available`` is always ``True``.
+
+### Removed
+These go rather than stay as compatibility shims; nothing in the toolkit
+read them except h3tools' range test (updated in outsideken/h3-tools).
+- ``ASTRAL_DEPRESSION_ANGLES``: use ``TWILIGHT_DEPRESSION_ANGLES``.
+- ``get_lunar_data`` key ``'Phase Number'`` (astral's 0–28 scale): use
+  ``'Lunation (Fraction)'``, or ``'Moon Age (Days)'`` for days.
+- ``get_lunar_data`` key ``'Ephem Available'``: ephem is required, so it
+  was always ``True``.
 
 ### Fixed
 - ``get_solar_data`` now reports the local day at the point. It used the UTC

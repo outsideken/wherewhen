@@ -60,7 +60,6 @@ from wherewhen.geometry import (
 from wherewhen.temporal import (
     ISO8601,
     TWILIGHT_DEPRESSION_ANGLES,
-    ASTRAL_DEPRESSION_ANGLES,
     epoch_to_datetime,
     convert_to_datetime,
     is_dt_naive,

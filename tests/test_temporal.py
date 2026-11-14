@@ -312,20 +312,29 @@ class TestLunarData:
         assert self._lunar(self.LONDON, datetime(2026, 5, 1))["Phase Name"] == "Full Moon"
         assert self._lunar(self.LONDON, datetime(2026, 5, 4))["Phase Name"] == "Waning Gibbous"
 
-    def test_phase_number_keeps_the_old_scale(self):
+    def test_lunation_fraction_matches_ephem(self):
+        import ephem
         m = self._lunar(self.LONDON, datetime(2026, 4, 24))
+        noon_utc = ephem.Date("2026/4/24 11:00")   # 12:00 BST
+        previous_new = ephem.previous_new_moon(noon_utc)
+        expected = (noon_utc - previous_new) / (ephem.next_new_moon(noon_utc) - previous_new)
+        assert m["Lunation (Fraction)"] == pytest.approx(expected, abs=1e-4)
         assert m["Is Waxing"] is True
-        assert m["Phase Number"] == pytest.approx(7.0, abs=0.5)   # 7 = first quarter
-        # The scale is the share of the lunation gone, and a full moon does
-        # not fall exactly half way through, so "14" is only roughly full.
+        assert m["Lunation (Fraction)"] == pytest.approx(0.25, abs=0.02)   # first quarter
+        # A full moon is not exactly half way through a lunation.
         full = self._lunar(self.LONDON, datetime(2026, 5, 1))
-        assert full["Phase Number"] == pytest.approx(14.0, abs=1.0)
+        assert full["Lunation (Fraction)"] == pytest.approx(0.5, abs=0.04)
 
-    def test_phase_number_stays_below_28_all_year(self):
+    def test_lunation_fraction_stays_in_range_all_year(self):
         for i in range(0, 365, 2):
             m = self._lunar(self.LONDON, datetime(2026, 1, 1) + timedelta(days=i))
-            assert 0.0 <= m["Phase Number"] < 28.0
+            assert 0.0 <= m["Lunation (Fraction)"] < 1.0
             assert 0.0 <= m["Moon Age (Days)"] < 30.0
+
+    def test_removed_keys_are_gone(self):
+        m = self._lunar(self.LONDON, datetime(2026, 4, 24))
+        assert "Phase Number" not in m
+        assert "Ephem Available" not in m
 
     def test_moonrise_and_moonset_are_on_the_local_day(self):
         for day in range(1, 31):
@@ -343,7 +352,6 @@ class TestLunarData:
     def test_include_riseset_false_skips_rise_and_set(self):
         m = self._lunar(self.LONDON, datetime(2026, 4, 24), include_riseset=False)
         assert m["Moonrise"] is None and m["Moonset"] is None
-        assert m["Ephem Available"] is True
 
 
 class TestWithoutAstral:
@@ -358,10 +366,10 @@ class TestWithoutAstral:
             sys.modules['astral'] = None  # make any astral import fail
             from datetime import datetime
             from shapely.geometry import Point
-            from wherewhen.temporal import get_solar_data, get_lunar_data, ASTRAL_DEPRESSION_ANGLES
+            from wherewhen.temporal import get_solar_data, get_lunar_data, TWILIGHT_DEPRESSION_ANGLES
             s = get_solar_data(Point(-0.1278, 51.5074), datetime(2026, 4, 24))
             m = get_lunar_data(Point(-0.1278, 51.5074), datetime(2026, 4, 24))
-            print(round(s["Day Length (Hours)"]), m["Phase Name"], sorted(ASTRAL_DEPRESSION_ANGLES))
+            print(round(s["Day Length (Hours)"]), m["Phase Name"], sorted(TWILIGHT_DEPRESSION_ANGLES))
         """)
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
@@ -369,9 +377,11 @@ class TestWithoutAstral:
             "14 First Quarter ['Astronomical', 'Civil', 'Nautical']"
         )
 
-    def test_old_constant_name_is_the_new_one(self):
-        from wherewhen.temporal import ASTRAL_DEPRESSION_ANGLES, TWILIGHT_DEPRESSION_ANGLES
-        assert ASTRAL_DEPRESSION_ANGLES is TWILIGHT_DEPRESSION_ANGLES
+    def test_old_constant_name_is_gone(self):
+        import wherewhen
+        import wherewhen.temporal as temporal
+        assert not hasattr(temporal, "ASTRAL_DEPRESSION_ANGLES")
+        assert not hasattr(wherewhen, "ASTRAL_DEPRESSION_ANGLES")
 
 
 class TestWithoutTimezonefinder:
