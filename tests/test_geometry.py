@@ -62,6 +62,66 @@ class TestMgrsToPoint:
             mgrs_to_point(12345)
 
 
+class TestMgrsSpacing:
+    """MGRS with whitespace between its groups, and malformed splits (#28)."""
+
+    CANONICAL = "18TWL8396007450"   # New York, (-74.00598, 40.71369)
+
+    @staticmethod
+    def _xy(text):
+        from wherewhen.geometry import mgrs_to_point
+        pt = mgrs_to_point(text)
+        return round(pt.x, 6), round(pt.y, 6)
+
+    @pytest.mark.parametrize("text", [
+        "18T WL 83960 07450",
+        "18t wl 83960 07450",
+        "18T\tWL  83960 07450",
+        "18TWL 83960 07450",
+        "  18TWL8396007450  ",
+    ])
+    def test_spaced_forms_match_the_canonical_string(self, text):
+        assert self._xy(text) == self._xy(self.CANONICAL)
+
+    def test_coordinate_to_point_accepts_spaces_too(self):
+        from wherewhen.geometry import coordinate_to_point, mgrs_to_point
+        assert coordinate_to_point("18T WL 83960 07450").equals(mgrs_to_point(self.CANONICAL))
+
+    def test_unequal_easting_and_northing_raise(self):
+        # Was POINT(-75, 40.65086) with no error: the library read only the
+        # square "18TWL" and dropped the digits.
+        from wherewhen.geometry import mgrs_to_point
+        with pytest.raises(ValueError, match=r"\[mgrs_to_point\] MGRS easting and northing must have the same number of digits"):
+            mgrs_to_point("18TWL 8396 007450")
+
+    @pytest.mark.parametrize("text, message", [
+        ("18TWL839600745", r"even number of digits"),
+        ("18TWL 123456 123456", r"same number of digits \(1–5 each\)"),
+        ("18IWL8396007450", r"I and O are not MGRS letters"),
+        ("18TWO8396007450", r"I and O are not MGRS letters"),
+        ("18TWL 839 600 7450", r"Invalid MGRS format"),
+        ("61TWL8396007450", r"Invalid UTM zone 61"),
+        ("18TWZ8396007450", r"does not exist"),
+    ])
+    def test_malformed_references_raise_labelled_value_errors(self, text, message):
+        from wherewhen.geometry import mgrs_to_point
+        with pytest.raises(ValueError, match=r"^⚠️ \[mgrs_to_point\] .*" + message):
+            mgrs_to_point(text)
+
+    @pytest.mark.parametrize("text", ["18TWL", "4QFJ12345678", "18TWL 1 2"])
+    def test_other_precisions_still_parse(self, text):
+        from wherewhen.geometry import mgrs_to_point
+        assert isinstance(mgrs_to_point(text), Point)
+
+    def test_validate_mgrs_keeps_its_contract(self):
+        # h3tools and jematools import _validate_mgrs: it returns None or raises.
+        from wherewhen._validators import _canonical_mgrs, _validate_mgrs
+        assert _validate_mgrs("18T WL 83960 07450", "caller") is None
+        assert _canonical_mgrs("18t wl 83960 07450", "caller") == self.CANONICAL
+        with pytest.raises(ValueError, match=r"\[caller\]"):
+            _validate_mgrs("18TWL 8396 007450", "caller")
+
+
 class TestDmsToPoint:
 
     LONDON_DMS = '51°30\'26"N 0°7\'40"W'

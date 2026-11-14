@@ -107,7 +107,7 @@ from wherewhen._validators import (
     _BOX_PATTERN,
     _validate_latitude,
     _validate_longitude,
-    _validate_mgrs,
+    _canonical_mgrs,
     _validate_mgrs_precision,
     _validate_point,
     _validate_dms,
@@ -994,8 +994,14 @@ def spherical_weighted_centroid(
 
 def _mgrs_to_point(mgrs_str: str, return_latlon: bool=False, *, func_name: str = "mgrs_to_point"):
     """Body of :func:`mgrs_to_point`; errors name *func_name*."""
-    _validate_mgrs(mgrs_str, func_name=func_name)
-    lat_dd, lon_dd = _MGRS_INSTANCE.toLatLon(mgrs_str)
+    canonical = _canonical_mgrs(mgrs_str, func_name=func_name)
+    try:
+        lat_dd, lon_dd = _MGRS_INSTANCE.toLatLon(canonical)
+    except mgrs_lib.core.MGRSError:
+        # Well-formed but not a real square (e.g. a row letter past V).
+        raise ValueError(
+            _warn(func_name, f"MGRS reference {mgrs_str!r} does not exist.")
+        ) from None
     return (lat_dd, lon_dd) if return_latlon else Point(lon_dd, lat_dd)
 
 
