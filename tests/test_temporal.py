@@ -10,20 +10,26 @@ from tests.conftest import LONDON_PT
 
 
 def _daylight_by_sampling(lonlat, day, tz_name, step_s=10):
-    """Hours the sun's centre spends above -0.833° in the local *day*, by sampling."""
+    """Hours the sun's centre spends above -0.833° in the local *day*, by sampling.
+
+    Uses ephem's sun position only (refraction off), not its rise/set search.
+    """
+    import math
     from zoneinfo import ZoneInfo
-    from astral import Observer
-    from astral.sun import elevation
+    import ephem
     tz = ZoneInfo(tz_name)
     nxt = day + timedelta(days=1)
     start = datetime(day.year, day.month, day.day, tzinfo=tz).astimezone(timezone.utc)
     end = datetime(nxt.year, nxt.month, nxt.day, tzinfo=tz).astimezone(timezone.utc)
-    obs = Observer(latitude=lonlat[1], longitude=lonlat[0])
-    steps = int((end - start).total_seconds() // step_s)
-    up = sum(
-        elevation(obs, start + timedelta(seconds=step_s * i + step_s / 2), with_refraction=False) > -0.833
-        for i in range(steps)
-    )
+    obs = ephem.Observer()
+    obs.lat, obs.lon, obs.pressure = str(lonlat[1]), str(lonlat[0]), 0
+    sun = ephem.Sun()
+    up = 0
+    for i in range(int((end - start).total_seconds() // step_s)):
+        when = start + timedelta(seconds=step_s * i + step_s / 2)
+        obs.date = ephem.Date(when.replace(tzinfo=None))
+        sun.compute(obs)
+        up += math.degrees(sun.alt) > -0.833
     return up * step_s / 3600
 
 
@@ -210,7 +216,7 @@ class TestSolarLocalDay:
         (SVALBARD, (8, 25), True),    # polar day ends, as Tromsø
         (MCMURDO, (2, 20), False),    # ~01:30 set, ~02:46 rise, up at midnight
         (TROMSO, (11, 27), True),     # last day before polar night: ~20 minutes
-        (MCMURDO, (8, 20), True),     # first day after polar night; astral misses the rise
+        (MCMURDO, (8, 20), True),     # first day after polar night (astral missed this rise)
     ])
     def test_day_length_counts_every_hour_the_sun_is_up(self, lonlat, month_day, rise_first):
         day = datetime(2026, *month_day)
@@ -253,12 +259,119 @@ class TestSolarLocalDay:
                 if s[key] is not None:
                     assert s[key].date() == day.date(), (key, day.date())
 
+    def test_twilight_brackets_sunrise_and_sunset(self):
+        s = self._solar((-0.1278, 51.5074), datetime(2026, 9, 1))
+        order = [s["Astronomical"]["Dawn"], s["Nautical"]["Dawn"], s["Civil"]["Dawn"],
+                 s["Sunrise"], s["Solar Noon"], s["Sunset"],
+                 s["Civil"]["Dusk"], s["Nautical"]["Dusk"], s["Astronomical"]["Dusk"]]
+        assert order == sorted(order)
+
+    def test_raised_observer_sees_the_sun_earlier(self):
+        from shapely.geometry import Point
+        from wherewhen.temporal import get_solar_data
+        pt = Point(7.7, 46.0)
+        sea = get_solar_data(pt, datetime(2026, 9, 1))
+        high = get_solar_data(pt, datetime(2026, 9, 1), elevation=2000.0)
+        # Horizon dip at 2 000 m is ~1.4°: sunrise roughly 8-9 minutes earlier.
+        earlier = (sea["Sunrise"] - high["Sunrise"]).total_seconds() / 60
+        assert 6 < earlier < 11
+
     def test_lunar_data_uses_the_local_date(self):
         from shapely.geometry import Point
         from wherewhen.temporal import get_lunar_data
         jst = timezone(timedelta(hours=9))
         m = get_lunar_data(Point(*self.TOKYO), datetime(2026, 4, 24, 8, 0, tzinfo=jst))
         assert m["Evaluation Date"].isoformat() == "2026-04-24"
+
+
+class TestLunarData:
+    """get_lunar_data comes from ephem: exact illumination, age in days, local-day rise/set."""
+
+    LONDON = (-0.1278, 51.5074)
+
+    @staticmethod
+    def _lunar(lonlat, dt, **kwargs):
+        from shapely.geometry import Point
+        from wherewhen.temporal import get_lunar_data
+        return get_lunar_data(Point(*lonlat), dt, **kwargs)
+
+    def test_illumination_and_age_match_ephem_at_local_noon(self):
+        import ephem
+        m = self._lunar(self.LONDON, datetime(2026, 4, 24))
+        noon_utc = ephem.Date("2026/4/24 11:00")   # 12:00 BST
+        assert m["Illumination (%)"] == pytest.approx(ephem.Moon(noon_utc).phase, abs=0.1)
+        assert m["Moon Age (Days)"] == pytest.approx(noon_utc - ephem.previous_new_moon(noon_utc), abs=0.1)
+        # astral's estimate was 56.9 % for this day.
+        assert 50 < m["Illumination (%)"] < 58
+
+    def test_phase_names_follow_the_principal_phases(self):
+        # 2026-04-24 02:32 UTC first quarter; 2026-05-01 17:23 UTC full moon.
+        assert self._lunar(self.LONDON, datetime(2026, 4, 24))["Phase Name"] == "First Quarter"
+        assert self._lunar(self.LONDON, datetime(2026, 4, 22))["Phase Name"] == "Waxing Crescent"
+        assert self._lunar(self.LONDON, datetime(2026, 4, 27))["Phase Name"] == "Waxing Gibbous"
+        assert self._lunar(self.LONDON, datetime(2026, 5, 1))["Phase Name"] == "Full Moon"
+        assert self._lunar(self.LONDON, datetime(2026, 5, 4))["Phase Name"] == "Waning Gibbous"
+
+    def test_phase_number_keeps_the_old_scale(self):
+        m = self._lunar(self.LONDON, datetime(2026, 4, 24))
+        assert m["Is Waxing"] is True
+        assert m["Phase Number"] == pytest.approx(7.0, abs=0.5)   # 7 = first quarter
+        # The scale is the share of the lunation gone, and a full moon does
+        # not fall exactly half way through, so "14" is only roughly full.
+        full = self._lunar(self.LONDON, datetime(2026, 5, 1))
+        assert full["Phase Number"] == pytest.approx(14.0, abs=1.0)
+
+    def test_phase_number_stays_below_28_all_year(self):
+        for i in range(0, 365, 2):
+            m = self._lunar(self.LONDON, datetime(2026, 1, 1) + timedelta(days=i))
+            assert 0.0 <= m["Phase Number"] < 28.0
+            assert 0.0 <= m["Moon Age (Days)"] < 30.0
+
+    def test_moonrise_and_moonset_are_on_the_local_day(self):
+        for day in range(1, 31):
+            m = self._lunar(self.LONDON, datetime(2026, 4, day))
+            for key in ("Moonrise", "Moonset"):
+                if m[key] is not None:
+                    assert m[key].date().isoformat() == f"2026-04-{day:02d}", key
+
+    def test_a_day_without_a_moonset_reports_none(self):
+        # London 2026-04-20: the moon set at 23:5x on the 19th and next at
+        # 01:03 on the 21st.  Before, the 21st's moonset was reported.
+        m = self._lunar(self.LONDON, datetime(2026, 4, 20))
+        assert m["Moonrise"] is not None and m["Moonset"] is None
+
+    def test_include_riseset_false_skips_rise_and_set(self):
+        m = self._lunar(self.LONDON, datetime(2026, 4, 24), include_riseset=False)
+        assert m["Moonrise"] is None and m["Moonset"] is None
+        assert m["Ephem Available"] is True
+
+
+class TestWithoutAstral:
+    """astral is no longer used: solar and lunar data work with it blocked."""
+
+    def test_solar_and_lunar_run_without_astral(self):
+        import subprocess
+        import sys
+        import textwrap
+        code = textwrap.dedent("""
+            import sys
+            sys.modules['astral'] = None  # make any astral import fail
+            from datetime import datetime
+            from shapely.geometry import Point
+            from wherewhen.temporal import get_solar_data, get_lunar_data, ASTRAL_DEPRESSION_ANGLES
+            s = get_solar_data(Point(-0.1278, 51.5074), datetime(2026, 4, 24))
+            m = get_lunar_data(Point(-0.1278, 51.5074), datetime(2026, 4, 24))
+            print(round(s["Day Length (Hours)"]), m["Phase Name"], sorted(ASTRAL_DEPRESSION_ANGLES))
+        """)
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == (
+            "14 First Quarter ['Astronomical', 'Civil', 'Nautical']"
+        )
+
+    def test_old_constant_name_is_the_new_one(self):
+        from wherewhen.temporal import ASTRAL_DEPRESSION_ANGLES, TWILIGHT_DEPRESSION_ANGLES
+        assert ASTRAL_DEPRESSION_ANGLES is TWILIGHT_DEPRESSION_ANGLES
 
 
 class TestWithoutTimezonefinder:
