@@ -92,7 +92,8 @@ try:
     import astral
     from astral import Observer
     from astral.moon import phase as _astral_moon_phase
-    from astral.sun import dawn, dusk, elevation as _sun_elevation, noon, sunrise, sunset
+    from astral.sun import adjust_to_horizon as _adjust_to_horizon
+    from astral.sun import elevation as _sun_elevation, midnight, noon
     _ASTRAL_AVAILABLE = True
 except ImportError:
     _ASTRAL_AVAILABLE = False
@@ -226,8 +227,13 @@ def _astro_context(pt: Point, eval_dt: datetime):
 
 
 # Geometric sun height at sunrise/sunset: -0.833° = refraction + the sun's
-# radius, the horizon astral uses.
+# radius, the horizon astral and ephem use.
 _HORIZON_DEG: float = -0.833
+
+# A crossing search stops once the bracket is this narrow, or after 60
+# steps.  astral reads the time to the whole second, so the sun's height is
+# a step function of the second and finer brackets add nothing.
+_CROSSING_TOLERANCE_S: float = 1.0
 
 
 def _height(obs, when: datetime) -> float:
@@ -235,46 +241,87 @@ def _height(obs, when: datetime) -> float:
     return _sun_elevation(obs, when, with_refraction=False)
 
 
-def _find_crossing(obs, start: datetime, end: datetime, height: float) -> Optional[datetime]:
-    """Return when the sun crosses *height* between *start* and *end*, by bisection.
+def _local_day_bounds(target_date, local_tz) -> Tuple[datetime, datetime]:
+    """Return the local midnights that start and end *target_date*."""
+    next_day = target_date + timedelta(days=1)
+    return (
+        datetime(target_date.year, target_date.month, target_date.day, tzinfo=local_tz),
+        datetime(next_day.year, next_day.month, next_day.day, tzinfo=local_tz),
+    )
 
-    Only answers when the sun is on opposite sides of *height* at the two
-    ends, so it finds one crossing or none.
+
+def _solar_turning_points(obs, target_date, local_tz, day_start, day_end) -> list:
+    """Return the local day's edges plus every solar noon and midnight inside it, in order.
+
+    Between two neighbouring entries the sun only climbs or only sinks, so
+    each stretch holds at most one crossing of any height.
+    """
+    turns = {day_start, day_end}
+    for offset in (-1, 0, 1):
+        day = target_date + timedelta(days=offset)
+        for fn in (noon, midnight):
+            when = fn(obs, date=day, tzinfo=local_tz)
+            if day_start < when < day_end:
+                turns.add(when)
+    return sorted(turns, key=lambda t: t.astimezone(timezone.utc))
+
+
+def _find_crossing(obs, start: datetime, end: datetime, h_start: float, h_end: float,
+                   height: float) -> datetime:
+    """Return when the sun crosses *height* between *start* and *end*.
+
+    The sun's height must be on opposite sides of *height* at the two ends
+    (*h_start*, *h_end*) and only climb or only sink in between.  Uses the
+    Illinois variant of false position: it keeps the crossing bracketed, like
+    bisection, but needs about a tenth of the steps.
     """
     lo, hi = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
-    lo_above = _height(obs, lo) > height
-    if lo_above == (_height(obs, hi) > height):
-        return None
-    for _ in range(40):  # 12 h / 2**40 is far below a microsecond
-        mid = lo + (hi - lo) / 2
-        if (_height(obs, mid) > height) == lo_above:
-            lo = mid
+    f_lo, f_hi = h_start - height, h_end - height
+    side = 0
+    for _ in range(60):
+        span = (hi - lo).total_seconds()
+        if span <= _CROSSING_TOLERANCE_S:
+            break
+        frac = f_lo / (f_lo - f_hi)
+        mid = lo + timedelta(seconds=span * min(max(frac, 0.0), 1.0))
+        f_mid = _height(obs, mid) - height
+        if (f_mid > 0) == (f_lo > 0):
+            lo, f_lo = mid, f_mid
+            if side == -1:
+                f_hi /= 2
+            side = -1
         else:
-            hi = mid
-    return (lo + (hi - lo) / 2).astimezone(start.tzinfo)
+            hi, f_hi = mid, f_mid
+            if side == 1:
+                f_lo /= 2
+            side = 1
+    return lo + (hi - lo) / 2
 
 
-def _sun_event(func, obs, target_date, local_tz, solar_noon: datetime,
-               height: float, rising: bool, **kwargs) -> Optional[datetime]:
-    """Return a solar event on the local *target_date*, or None if it doesn't happen.
+def _sun_crossings(obs, turns: list, turn_heights: list, height: float, local_tz) -> list:
+    """Return every ``(time, rising)`` crossing of *height* in the local day, in order.
 
-    astral is asked first.  astral finds one event per UTC day, and can miss
-    one whose local day is split across two UTC days (McMurdo's sunrise on
-    2026-08-20 is an example).  If astral finds none but the sun is on
-    opposite sides of *height* at local midnight and solar noon (rising) or
-    at solar noon and the next midnight (setting), the crossing is found by
-    bisection instead.
+    *turns* come from :func:`_solar_turning_points`; *turn_heights* are the
+    sun's heights at them, worked out once and shared across heights.
     """
-    try:
-        return func(obs, date=target_date, tzinfo=local_tz, **kwargs)
-    except ValueError:
-        pass
-    midnight = datetime(target_date.year, target_date.month, target_date.day, tzinfo=local_tz)
-    if rising:
-        return _find_crossing(obs, midnight, solar_noon, height)
-    next_day = target_date + timedelta(days=1)
-    next_midnight = datetime(next_day.year, next_day.month, next_day.day, tzinfo=local_tz)
-    return _find_crossing(obs, solar_noon, next_midnight, height)
+    crossings = []
+    for i in range(len(turns) - 1):
+        start_above = turn_heights[i] > height
+        if start_above != (turn_heights[i + 1] > height):
+            when = _find_crossing(obs, turns[i], turns[i + 1],
+                                  turn_heights[i], turn_heights[i + 1], height)
+            crossings.append((when.astimezone(local_tz), not start_above))
+    return crossings
+
+
+def _first_rise(crossings: list) -> Optional[datetime]:
+    """Return the first upward crossing, or None."""
+    return next((when for when, rising in crossings if rising), None)
+
+
+def _last_set(crossings: list) -> Optional[datetime]:
+    """Return the last downward crossing, or None."""
+    return next((when for when, rising in reversed(crossings) if not rising), None)
 
 
 def _hours_between(a: datetime, b: datetime) -> float:
@@ -282,31 +329,23 @@ def _hours_between(a: datetime, b: datetime) -> float:
     return (b.astimezone(timezone.utc) - a.astimezone(timezone.utc)).total_seconds() / 3600
 
 
-def _day_length_hours(obs, target_date, local_tz, rise, set_, solar_noon) -> float:
-    """Hours of daylight in the local day, from its sunrise and sunset.
+def _hours_above(start_above: bool, day_start: datetime, day_end: datetime,
+                 crossings: list) -> float:
+    """Hours in the local day the sun spends above a height, over every stretch.
 
-    With neither a sunrise nor a sunset that day, it is polar day (24) or
-    polar night (0), told apart by the sun's height at solar noon.  (Once
-    :func:`_sun_event` has looked for a crossing itself, no sunrise means the
-    sun was either up at midnight and noon, or down at noon.)  With only one
-    of them (the first or last day of
-    a polar period), daylight runs from midnight to the sunset, or from the
-    sunrise to the next midnight.  A sunset earlier than the sunrise counts
-    the daylight at both ends of the day.
+    *start_above* says whether it was above at *day_start*; *crossings* are
+    that height's crossings from :func:`_sun_crossings`.
     """
-    midnight = datetime(target_date.year, target_date.month, target_date.day, tzinfo=local_tz)
-    next_day = target_date + timedelta(days=1)
-    next_midnight = datetime(next_day.year, next_day.month, next_day.day, tzinfo=local_tz)
-    if rise is None and set_ is None:
-        return 24.0 if _height(obs, solar_noon) > _HORIZON_DEG else 0.0
-    if rise is None:
-        return round(_hours_between(midnight, set_), 3)
-    if set_ is None:
-        return round(_hours_between(rise, next_midnight), 3)
-    hours = _hours_between(rise, set_)
-    if hours < 0:
-        hours += _hours_between(midnight, next_midnight)
-    return round(hours, 3)
+    above = start_above
+    total, since = 0.0, day_start
+    for when, rising in crossings:
+        if not rising:
+            total += _hours_between(since, when)
+        since = when
+        above = rising
+    if above:
+        total += _hours_between(since, day_end)
+    return round(total, 3)
 
 
 # ── Datetime helpers ──────────────────────────────────────────────────────────
@@ -764,13 +803,24 @@ def get_solar_data(
 
     Identifies the local IANA timezone for *pt*, then calculates sunrise,
     sunset, solar noon, day length, and all three standard twilight phases
-    (Civil, Nautical, Astronomical) using the ``astral`` library.  All times
-    in the returned dictionary are localised to the geographic timezone of *pt*.
+    (Civil, Nautical, Astronomical).  The sun's position comes from
+    ``astral``; each crossing is found by bisecting the sun's height (within
+    a few seconds of ``ephem``).  All times are localised to the geographic
+    timezone of *pt*.
 
-    Events are for the *local* calendar day at *pt*.  At extreme latitudes
-    the sun may not rise, set, or cross some depression angles that day
-    (polar day or polar night); those values are ``None``, and
-    ``'Day Length (Hours)'`` is ``24.0`` or ``0.0``.
+    Events are for the *local* calendar day at *pt*.  Sunrise is the sun's
+    centre rising through -0.833° (refraction plus the sun's radius), less
+    the horizon dip for *elevation*; twilight uses the depression angle.
+
+    * **Polar day / night.**  If the sun never crosses a height that day, the
+      matching values are ``None``.  ``'Day Length (Hours)'`` is then the
+      length of the local day (normally ``24.0``) or ``0.0``.
+    * **More than one sunrise or sunset.**  Near the start or end of a polar
+      period the sun can set just after midnight and rise again, or set and
+      not rise.  ``'Sunrise'`` is the first rise of the day and ``'Sunset'``
+      the last set, so ``'Sunset'`` can be *earlier* than ``'Sunrise'``
+      (``Sunset - Sunrise`` is then negative).  ``'Day Length (Hours)'``
+      counts every hour the sun is up, wherever in the day.
 
     Parameters
     ----------
@@ -830,22 +880,29 @@ def get_solar_data(
 
     eval_dt_utc, tz_name, tz_offset, local_tz, target_date = _astro_context(pt, eval_dt)
     obs = Observer(latitude=pt.y, longitude=pt.x, elevation=elevation)
+    # A higher observer sees further round the Earth: the horizon dips.
+    dip = _adjust_to_horizon(elevation)
+    day_start, day_end = _local_day_bounds(target_date, local_tz)
+    turns = _solar_turning_points(obs, target_date, local_tz, day_start, day_end)
     solar_noon = noon(obs, date=target_date, tzinfo=local_tz)
-    rise = _sun_event(sunrise, obs, target_date, local_tz, solar_noon, _HORIZON_DEG, rising=True)
-    set_ = _sun_event(sunset, obs, target_date, local_tz, solar_noon, _HORIZON_DEG, rising=False)
-    day_length = _day_length_hours(obs, target_date, local_tz, rise, set_, solar_noon)
+
+    turn_heights = [_height(obs, t) for t in turns]
+
+    horizon = _HORIZON_DEG - dip
+    sun_crossings = _sun_crossings(obs, turns, turn_heights, horizon, local_tz)
+    rise = _first_rise(sun_crossings)
+    set_ = _last_set(sun_crossings)
+    day_length = _hours_above(turn_heights[0] > horizon, day_start, day_end, sun_crossings)
 
     if include_twilight:
-        twilights = {
-            name: {
-                "Dawn":       _sun_event(dawn, obs, target_date, local_tz, solar_noon,
-                                         -angle, rising=True, depression=angle),
-                "Dusk":       _sun_event(dusk, obs, target_date, local_tz, solar_noon,
-                                         -angle, rising=False, depression=angle),
+        twilights = {}
+        for name, angle in ASTRAL_DEPRESSION_ANGLES.items():
+            crossings = _sun_crossings(obs, turns, turn_heights, -angle - dip, local_tz)
+            twilights[name] = {
+                "Dawn":       _first_rise(crossings),
+                "Dusk":       _last_set(crossings),
                 "Depression": angle,
             }
-            for name, angle in ASTRAL_DEPRESSION_ANGLES.items()
-        }
     else:
         twilights = {name: None for name in ASTRAL_DEPRESSION_ANGLES}
 

@@ -9,6 +9,24 @@ from datetime import datetime, timezone, timedelta
 from tests.conftest import LONDON_PT
 
 
+def _daylight_by_sampling(lonlat, day, tz_name, step_s=10):
+    """Hours the sun's centre spends above -0.833° in the local *day*, by sampling."""
+    from zoneinfo import ZoneInfo
+    from astral import Observer
+    from astral.sun import elevation
+    tz = ZoneInfo(tz_name)
+    nxt = day + timedelta(days=1)
+    start = datetime(day.year, day.month, day.day, tzinfo=tz).astimezone(timezone.utc)
+    end = datetime(nxt.year, nxt.month, nxt.day, tzinfo=tz).astimezone(timezone.utc)
+    obs = Observer(latitude=lonlat[1], longitude=lonlat[0])
+    steps = int((end - start).total_seconds() // step_s)
+    up = sum(
+        elevation(obs, start + timedelta(seconds=step_s * i + step_s / 2), with_refraction=False) > -0.833
+        for i in range(steps)
+    )
+    return up * step_s / 3600
+
+
 class TestDatetimeHelpers:
 
     def test_ensure_utc_naive_input(self):
@@ -159,10 +177,15 @@ class TestSolarLocalDay:
         assert 13 < s["Day Length (Hours)"] < 14
 
     def test_naive_datetime_uses_its_date_as_written(self):
-        # Midnight UTC on the 24th is still the 23rd in Honolulu; the date
-        # written is the one used.
-        s = self._solar(self.HONOLULU, datetime(2026, 4, 24))
-        assert s["Evaluation Date"].isoformat() == "2026-04-24"
+        # Midnight UTC on the 24th is still the 23rd in Honolulu.  A naive
+        # datetime keeps the date written; an aware UTC one is converted.
+        naive = self._solar(self.HONOLULU, datetime(2026, 4, 24))
+        assert naive["Evaluation Date"].isoformat() == "2026-04-24"
+        assert naive["Day Length (Hours)"] == pytest.approx(12.816, abs=0.01)
+        aware = self._solar(self.HONOLULU, datetime(2026, 4, 24, tzinfo=timezone.utc))
+        assert aware["Evaluation Date"].isoformat() == "2026-04-23"
+        assert aware["Sunrise"].date().isoformat() == "2026-04-23"
+        assert aware["Day Length (Hours)"] == pytest.approx(12.797, abs=0.01)
 
     @pytest.mark.parametrize("lonlat, month_day, hours", [
         (SVALBARD, (6, 21), 24.0),    # polar day
@@ -177,28 +200,47 @@ class TestSolarLocalDay:
         assert s["Solar Noon"] is not None
         assert s["Day Length (Hours)"] == hours
 
-    def test_day_after_polar_day_counts_from_midnight(self):
-        # Tromsø 2026-05-17: the sun rises at about 01:20 and does not set.
-        s = self._solar(self.TROMSO, datetime(2026, 5, 17))
-        assert s["Sunrise"] is not None and s["Sunset"] is None
-        assert 22 < s["Day Length (Hours)"] < 23
+    # Days next to a polar period, where the sun can set just after midnight
+    # and rise again.  Expected hours come from _daylight_by_sampling, which
+    # counts 10-second steps above the horizon and shares no code with the
+    # crossing search.
+    @pytest.mark.parametrize("lonlat, month_day, rise_first", [
+        (TROMSO, (5, 17), False),     # polar day starts: ~00:03 set, ~01:17 rise, no evening set
+        (TROMSO, (7, 27), True),      # polar day ends: ~00:15 set, rise, evening set
+        (SVALBARD, (8, 25), True),    # polar day ends, as Tromsø
+        (MCMURDO, (2, 20), False),    # ~01:30 set, ~02:46 rise, up at midnight
+        (TROMSO, (11, 27), True),     # last day before polar night: ~20 minutes
+        (MCMURDO, (8, 20), True),     # first day after polar night; astral misses the rise
+    ])
+    def test_day_length_counts_every_hour_the_sun_is_up(self, lonlat, month_day, rise_first):
+        day = datetime(2026, *month_day)
+        s = self._solar(lonlat, day)
+        expected = _daylight_by_sampling(lonlat, day.date(), s["Timezone Name"])
+        assert s["Day Length (Hours)"] == pytest.approx(expected, abs=0.01)
+        assert s["Sunrise"].date() == s["Sunset"].date() == day.date()
+        # Sunrise is the first rise of the day and Sunset the last set.
+        assert (s["Sunrise"] < s["Sunset"]) is rise_first
 
-    def test_last_short_day_before_polar_night(self):
-        # Tromsø 2026-11-27: the sun's centre clears -0.833° for about 20
-        # minutes around noon.  astral reports no sunrise; before the fix
-        # that day came out as 24 h of daylight.
-        s = self._solar(self.TROMSO, datetime(2026, 11, 27))
-        assert s["Sunrise"] < s["Solar Noon"] < s["Sunset"]
-        assert 0 < s["Day Length (Hours)"] < 1
+    def test_polar_day_end_keeps_the_morning_daylight(self):
+        # Tromsø 2026-07-27: up at midnight, sets ~00:15, rises ~01:29, sets
+        # ~23:59.  Rise-to-set alone (22.5 h) would drop the first 15 minutes.
+        s = self._solar(self.TROMSO, datetime(2026, 7, 27))
+        rise_to_set = (s["Sunset"] - s["Sunrise"]).total_seconds() / 3600
+        assert s["Day Length (Hours)"] > rise_to_set + 0.2
 
-    def test_sunrise_astral_misses_is_still_found(self):
-        # astral finds no McMurdo sunrise on 2026-08-20 (it falls across a
-        # UTC day boundary); the sun does rise, at about 11:52 local.
-        s = self._solar(self.MCMURDO, datetime(2026, 8, 20))
-        assert s["Sunrise"] is not None
-        assert s["Sunrise"].date().isoformat() == "2026-08-20"
-        assert s["Sunrise"] < s["Solar Noon"] < s["Sunset"]
-        assert 1.5 < s["Day Length (Hours)"] < 3
+    def test_events_agree_with_ephem(self):
+        ephem = pytest.importorskip("ephem")
+        from zoneinfo import ZoneInfo
+        lat, lon = 51.5074, -0.1278
+        s = self._solar((lon, lat), datetime(2026, 9, 1))
+        obs = ephem.Observer()
+        obs.lat, obs.lon, obs.pressure = str(lat), str(lon), 0
+        obs.horizon = "-0:49:59"   # -0.833°
+        start = datetime(2026, 9, 1, tzinfo=ZoneInfo("Europe/London")).astimezone(timezone.utc)
+        obs.date = start.strftime("%Y/%m/%d %H:%M:%S")
+        for key, fn in (("Sunrise", obs.next_rising), ("Sunset", obs.next_setting)):
+            expected = fn(ephem.Sun(), use_center=True).datetime().replace(tzinfo=timezone.utc)
+            assert abs((s[key] - expected).total_seconds()) < 10, key
 
     @pytest.mark.parametrize("lonlat", [TOKYO, HONOLULU, AUCKLAND, SVALBARD, MCMURDO, TROMSO])
     def test_a_year_of_day_lengths_stays_in_range(self, lonlat):
