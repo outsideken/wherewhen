@@ -10,6 +10,49 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Changed
+- ``get_solar_data`` and ``get_lunar_data`` use ephem only; **astral is no
+  longer a dependency** (#23). ephem was already required for moonrise and
+  moonset. Sunrise, sunset and twilight come from ephem's rise/set search,
+  stepped through the whole local day so every crossing is found; solar
+  noon is the sun's transit. Times move by a few seconds (they were within
+  about 5 s of ephem).
+- ``TWILIGHT_DEPRESSION_ANGLES`` replaces ``ASTRAL_DEPRESSION_ANGLES``
+  (same values; the old name is removed, see Removed).
+- The horizon dip for a raised observer uses the mean Earth radius
+  (6 371 008.8 m, as ``geometry.EARTH_RADIUS_M``) in place of astral's
+  6 356 900 m; the difference is under a second of sunrise at 2 000 m.
+- ``get_lunar_data``:
+  - ``Illumination (%)`` is ephem's lit share of the disc. It was estimated
+    from astral's phase number with a 27-day cycle, and ran up to about
+    8 points off (56.9 % on 2026-04-24 where the moon was 48.9 % lit at
+    00:00 UTC).
+  - ``Moon Age (Days)`` is days since the last new moon (0–29.9). It was
+    astral's 0–28 phase number, not days.
+  - New ``Lunation (Fraction)``: how far through the current lunation (new
+    moon to next new moon) the moment is, in [0, 1) — 0 new, about 0.25
+    first quarter, 0.5 full, 0.75 last quarter. Replaces ``Phase Number``.
+  - ``Phase Name`` gives New Moon, First Quarter, Full Moon or Last Quarter
+    within 12 hours of that moment, otherwise crescent or gibbous (under or
+    over half lit), waxing or waning. ``Is Waxing`` is true from new moon
+    to full moon.
+  - Phase, age and illumination are for local noon on the day (astral's
+    phase was for the date at 00:00 UTC).
+  - ``Moonrise`` / ``Moonset`` are the first rise and last set of the
+    moon's upper edge during the local day, with 34' of refraction. They
+    were the next rise and set after local midnight with no refraction, so
+    a day without a moonrise or moonset reported the next day's; it is now
+    ``None``.
+
+### Removed
+These go rather than stay as compatibility shims; nothing in the toolkit
+read them except h3tools' range test (updated in outsideken/h3-tools).
+- ``ASTRAL_DEPRESSION_ANGLES``: use ``TWILIGHT_DEPRESSION_ANGLES``.
+- ``get_lunar_data`` key ``'Phase Number'`` (astral's 0–28 scale): use
+  ``'Lunation (Fraction)'``, or ``'Moon Age (Days)'`` for days.
+- ``get_lunar_data`` key ``'Ephem Available'``: ephem is required, so it
+  was always ``True``.
+
 ### Fixed
 - ``get_solar_data`` now reports the local day at the point. It used the UTC
   date and computed in UTC, so away from UTC sunrise and sunset came from
@@ -29,15 +72,13 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   and ``Sunset`` the last set, so on such days ``Sunset`` can be earlier
   than ``Sunrise``. Day length is measured in UTC, so a DST change that day
   is counted.
-- Sunrise, sunset and twilight times are found from astral's sun position
-  by root-finding on the sun's height between solar noon and solar
-  midnight, rather than astral's ``sunrise`` / ``sunset`` / ``dawn`` /
-  ``dusk``. Those skipped some events whose local day spans two UTC days
-  (McMurdo's sunrise on 2026-08-20) and ran 10–60 s from ephem; the new
-  times are within about 5 s of ephem. A raised observer (``elevation``)
-  lowers the horizon by astral's dip formula, added to the standard
-  -0.833°; astral also shrank its refraction allowance below the horizon,
-  so at 2 000 m sunrise is now about 2 minutes earlier than astral gave.
+- Sunrise, sunset and twilight no longer come from astral's ``sunrise`` /
+  ``sunset`` / ``dawn`` / ``dusk``, which skipped some events whose local
+  day spans two UTC days (McMurdo's sunrise on 2026-08-20) and ran 10–60 s
+  from ephem. A raised observer (``elevation``) lowers the horizon by the
+  dip angle, added to the standard -0.833°; astral also shrank its
+  refraction allowance below the horizon, so at 2 000 m sunrise is now
+  about 2 minutes earlier than astral gave.
 - ``get_lunar_data`` uses the same local date, so moonrise and moonset are
   for the local day.
 

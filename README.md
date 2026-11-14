@@ -181,7 +181,7 @@ from wherewhen.crs import (
   GCJ/BD transforms are practical offset models, not authoritative survey code.
 - **Not JEMA I/O** — `load_table`, CV types, and `temporalRange` pipes live in
   `jematools`.
-- **Solar / lunar quality** depends on optional packages (`astral`, `ephem`,
+- **Solar / lunar quality** depends on optional packages (`ephem`,
   `timezonefinder`) and observer assumptions.
 
 ---
@@ -276,8 +276,7 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 | `mgrs` | MGRS conversions |
 | `python-dateutil` | Flexible datetime parsing |
 | `timezonefinder` | `point_to_tz_offset` (soft) |
-| `astral` | `get_solar_data` (soft) |
-| `ephem` | `get_lunar_data` (soft) |
+| `ephem` | `get_solar_data`, `get_lunar_data` (soft) |
 | `pyproj` | SK-42 CRS conversions only (soft) |
 
 ---

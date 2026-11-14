@@ -7,9 +7,10 @@ Provides helpers for parsing and normalising datetime objects, looking up
 IANA timezone names and UTC offsets from geographic points, and computing
 solar and lunar events for any location on a given date.
 
-Soft dependencies — ``astral``, ``ephem``, and ``timezonefinder`` — are
-detected at import time.  Functions that require them raise
-:class:`ImportError` with an installation hint if they are unavailable.
+Soft dependencies — ``ephem`` (sun and moon positions) and
+``timezonefinder`` (timezone from coordinates) — are detected at import
+time.  Functions that require them raise :class:`ImportError` with an
+installation hint if they are unavailable.
 
 Module Attributes
 -----------------
@@ -17,7 +18,7 @@ ISO8601 : str
     ``strftime``/``strptime`` format string for ISO 8601 timestamps with
     millisecond precision and literal Z suffix:
     ``"%Y-%m-%dT%H:%M:%S.%fZ"``.
-ASTRAL_DEPRESSION_ANGLES : dict
+TWILIGHT_DEPRESSION_ANGLES : dict
     Solar depression angles in degrees for the three recognised twilight
     phases: ``'Civil'`` (6°), ``'Nautical'`` (12°), and
     ``'Astronomical'`` (18°).
@@ -56,7 +57,6 @@ this module directly — not re-exported by :mod:`jematools`.  JEMA
 """
 
 import math
-import warnings
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Dict, Optional, Tuple, Union
@@ -65,6 +65,7 @@ from dateutil import parser as dateutil_parser
 from shapely.geometry import Point
 
 from wherewhen._messages import warn as _warn
+from wherewhen.geometry import EARTH_RADIUS_M
 from wherewhen._validators import (
     _validate_datetime,
     _validate_number,
@@ -74,7 +75,7 @@ from wherewhen._validators import (
 
 __all__ = [
     "ISO8601",
-    "ASTRAL_DEPRESSION_ANGLES",
+    "TWILIGHT_DEPRESSION_ANGLES",
     "epoch_to_datetime",
     "convert_to_datetime",
     "is_dt_naive",
@@ -88,16 +89,6 @@ __all__ = [
 ]
 
 # ── Optional-dependency guards ────────────────────────────────────────────────
-try:
-    import astral
-    from astral import Observer
-    from astral.moon import phase as _astral_moon_phase
-    from astral.sun import adjust_to_horizon as _adjust_to_horizon
-    from astral.sun import elevation as _sun_elevation, midnight, noon
-    _ASTRAL_AVAILABLE = True
-except ImportError:
-    _ASTRAL_AVAILABLE = False
-
 try:
     import ephem as _ephem
     _EPHEM_AVAILABLE = True
@@ -122,77 +113,43 @@ except ImportError:
 # ── Constants ─────────────────────────────────────────────────────────────────
 ISO8601: str = "%Y-%m-%dT%H:%M:%S.%fZ"
 
-ASTRAL_DEPRESSION_ANGLES: Dict[str, float] = {
+TWILIGHT_DEPRESSION_ANGLES: Dict[str, float] = {
     "Civil": 6.0,
     "Nautical": 12.0,
     "Astronomical": 18.0,
 }
 
-# astral.moon.phase() returns a value in [0, 27] where 0 = new moon,
-# ~7 = first quarter, ~14 = full moon, ~21 = last quarter.
-_ASTRAL_LUNAR_SCALE: float = 27.0
+# Sun's centre at sunrise/sunset: -0.833° = refraction (34') + the sun's
+# radius (16'), measured with refraction switched off (pressure 0).
+_SUN_HORIZON_DEG: float = -0.833
 
-_PHASE_BOUNDARIES = [
-    (1.0,  "New Moon"),
-    (6.5,  "Waxing Crescent"),
-    (7.5,  "First Quarter"),
-    (13.5, "Waxing Gibbous"),
-    (14.5, "Full Moon"),
-    (20.5, "Waning Gibbous"),
-    (21.5, "Last Quarter"),
-    (26.5, "Waning Crescent"),
-]
+# Moon's upper edge at moonrise/moonset: -34' of refraction.  ephem already
+# includes the moon's parallax (topocentric position).
+_MOON_HORIZON_DEG: float = -34.0 / 60.0
+
+# Mean synodic month (new moon to new moon), in days.
+_SYNODIC_MONTH_DAYS: float = 29.530588853
+
+# A principal phase (new, first quarter, full, last quarter) is named when
+# the evaluation moment is within this many hours of it.
+_PRINCIPAL_PHASE_WINDOW_H: float = 12.0
+
+# When ephem cannot place the next antitransit, the pass search moves on by
+# this many days instead.  A pass lasts about a day, so half a day never
+# skips one.
+_PASS_FALLBACK_STEP_DAYS: float = 0.5
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _lunar_phase_name(phase_day: float) -> str:
-    """Return a human-readable moon phase name for an astral phase value."""
-    p = phase_day % _ASTRAL_LUNAR_SCALE
-    for threshold, name in _PHASE_BOUNDARIES:
-        if p < threshold:
-            return name
-    return "New Moon"
-
-
-def _ephem_moon_riseset(
-    pt: Point, target_date, local_tz, elevation: float = 0.0
-) -> Tuple[Optional[datetime], Optional[datetime]]:
-    """Return (moonrise, moonset) for *target_date* at *pt* using ephem."""
-    obs = _ephem.Observer()
-    obs.lat = str(pt.y)
-    obs.lon = str(pt.x)
-    obs.elevation = elevation
-    obs.horizon = "0"
-    obs.pressure = 0  # suppress atmospheric refraction correction
-
-    local_midnight = datetime(
-        target_date.year, target_date.month, target_date.day,
-        tzinfo=local_tz,
-    )
-    utc_midnight = local_midnight.astimezone(timezone.utc)
-    obs.date = utc_midnight.strftime("%Y/%m/%d %H:%M:%S")
-
-    moon = _ephem.Moon()
-
-    def _safe(fn):
-        try:
-            raw = fn(moon)
-            return raw.datetime().replace(tzinfo=timezone.utc).astimezone(local_tz)
-        except (_ephem.NeverUpError, _ephem.AlwaysUpError):
-            return None
-
-    return _safe(obs.next_rising), _safe(obs.next_setting)
-
-
 def _require_astro_deps(caller: str) -> None:
-    """Raise ImportError, naming *caller*, if astral or timezonefinder is missing."""
-    if not _ASTRAL_AVAILABLE:
+    """Raise ImportError, naming *caller*, if ephem or timezonefinder is missing."""
+    if not _EPHEM_AVAILABLE:
         raise ImportError(
             _warn(
                 caller,
-                "astral is required for solar/lunar calculations. "
-                "Install with: pip install astral",
+                "ephem is required for solar/lunar calculations. "
+                "Install with: pip install ephem",
             )
         )
     if not _TZ_AVAILABLE:
@@ -226,21 +183,6 @@ def _astro_context(pt: Point, eval_dt: datetime):
     return eval_dt_utc, tz_name, tz_offset, local_tz, target_date
 
 
-# Geometric sun height at sunrise/sunset: -0.833° = refraction + the sun's
-# radius, the horizon astral and ephem use.
-_HORIZON_DEG: float = -0.833
-
-# A crossing search stops once the bracket is this narrow, or after 60
-# steps.  astral reads the time to the whole second, so the sun's height is
-# a step function of the second and finer brackets add nothing.
-_CROSSING_TOLERANCE_S: float = 1.0
-
-
-def _height(obs, when: datetime) -> float:
-    """Geometric height of the sun's centre in degrees (no refraction)."""
-    return _sun_elevation(obs, when, with_refraction=False)
-
-
 def _local_day_bounds(target_date, local_tz) -> Tuple[datetime, datetime]:
     """Return the local midnights that start and end *target_date*."""
     next_day = target_date + timedelta(days=1)
@@ -250,68 +192,84 @@ def _local_day_bounds(target_date, local_tz) -> Tuple[datetime, datetime]:
     )
 
 
-def _solar_turning_points(obs, target_date, local_tz, day_start, day_end) -> list:
-    """Return the local day's edges plus every solar noon and midnight inside it, in order.
+def _horizon_dip_deg(elevation_m: float) -> float:
+    """Degrees the horizon drops for an observer *elevation_m* above sea level."""
+    if elevation_m <= 0:
+        return 0.0
+    return math.degrees(math.acos(EARTH_RADIUS_M / (EARTH_RADIUS_M + elevation_m)))
 
-    Between two neighbouring entries the sun only climbs or only sinks, so
-    each stretch holds at most one crossing of any height.
+
+def _to_ephem_date(when: datetime):
+    """Return an aware datetime as an ``ephem.Date`` (ephem works in UTC)."""
+    return _ephem.Date(when.astimezone(timezone.utc).replace(tzinfo=None))
+
+
+def _from_ephem_date(value, local_tz) -> datetime:
+    """Return an ``ephem.Date`` as an aware datetime in *local_tz*."""
+    return value.datetime().replace(tzinfo=timezone.utc).astimezone(local_tz)
+
+
+def _ephem_observer(pt: Point, elevation: float, horizon_deg: float):
+    """Return an ephem Observer at *pt* with refraction off and the given horizon."""
+    obs = _ephem.Observer()
+    obs.lat = str(pt.y)
+    obs.lon = str(pt.x)
+    obs.elevation = elevation
+    obs.pressure = 0          # refraction is in the horizon angle instead
+    obs.horizon = math.radians(horizon_deg)
+    return obs
+
+
+def _altitude_deg(obs, body, when: datetime) -> float:
+    """Height of *body* in degrees for *obs* at *when*."""
+    obs.date = _to_ephem_date(when)
+    body.compute(obs)
+    return math.degrees(body.alt)
+
+
+def _crossings_of(obs, body, day_start: datetime, day_end: datetime, rising: bool,
+                  use_center: bool) -> list:
+    """Return every time *body* rises (or sets) through ``obs.horizon`` in the day.
+
+    ephem searches one pass across the sky at a time (antitransit to
+    antitransit).  A pass with no crossing raises a circumpolar error, so the
+    search then jumps to the next antitransit and carries on until the end of
+    the day.  If ephem cannot place that antitransit either, the search moves
+    on half a day, which still lands inside the next pass at the latest.
     """
-    turns = {day_start, day_end}
-    for offset in (-1, 0, 1):
-        day = target_date + timedelta(days=offset)
-        for fn in (noon, midnight):
-            when = fn(obs, date=day, tzinfo=local_tz)
-            if day_start < when < day_end:
-                turns.add(when)
-    return sorted(turns, key=lambda t: t.astimezone(timezone.utc))
-
-
-def _find_crossing(obs, start: datetime, end: datetime, h_start: float, h_end: float,
-                   height: float) -> datetime:
-    """Return when the sun crosses *height* between *start* and *end*.
-
-    The sun's height must be on opposite sides of *height* at the two ends
-    (*h_start*, *h_end*) and only climb or only sink in between.  Uses the
-    Illinois variant of false position: it keeps the crossing bracketed, like
-    bisection, but needs about a tenth of the steps.
-    """
-    lo, hi = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
-    f_lo, f_hi = h_start - height, h_end - height
-    side = 0
-    for _ in range(60):
-        span = (hi - lo).total_seconds()
-        if span <= _CROSSING_TOLERANCE_S:
+    find = obs.next_rising if rising else obs.next_setting
+    start, end = _to_ephem_date(day_start), _to_ephem_date(day_end)
+    found = []
+    cursor = start
+    for _ in range(8):   # a day holds at most two passes
+        try:
+            when = find(body, start=cursor, use_center=use_center)
+        except _ephem.CircumpolarError:
+            when = None
+        if when is not None:
+            if when >= end:
+                break
+            found.append(when)
+            cursor = _ephem.Date(when + _ephem.second)
+            continue
+        try:
+            cursor = _ephem.Date(obs.next_antitransit(body, start=cursor) + _ephem.second)
+        except _ephem.CircumpolarError:
+            cursor = _ephem.Date(cursor + _PASS_FALLBACK_STEP_DAYS)
+        if cursor >= end:
             break
-        frac = f_lo / (f_lo - f_hi)
-        mid = lo + timedelta(seconds=span * min(max(frac, 0.0), 1.0))
-        f_mid = _height(obs, mid) - height
-        if (f_mid > 0) == (f_lo > 0):
-            lo, f_lo = mid, f_mid
-            if side == -1:
-                f_hi /= 2
-            side = -1
-        else:
-            hi, f_hi = mid, f_mid
-            if side == 1:
-                f_lo /= 2
-            side = 1
-    return lo + (hi - lo) / 2
+    return found
 
 
-def _sun_crossings(obs, turns: list, turn_heights: list, height: float, local_tz) -> list:
-    """Return every ``(time, rising)`` crossing of *height* in the local day, in order.
-
-    *turns* come from :func:`_solar_turning_points`; *turn_heights* are the
-    sun's heights at them, worked out once and shared across heights.
-    """
-    crossings = []
-    for i in range(len(turns) - 1):
-        start_above = turn_heights[i] > height
-        if start_above != (turn_heights[i + 1] > height):
-            when = _find_crossing(obs, turns[i], turns[i + 1],
-                                  turn_heights[i], turn_heights[i + 1], height)
-            crossings.append((when.astimezone(local_tz), not start_above))
-    return crossings
+def _day_crossings(obs, body, day_start: datetime, day_end: datetime, local_tz,
+                   use_center: bool) -> list:
+    """Return every ``(time, rising)`` horizon crossing of *body* in the local day, in order."""
+    events = [
+        (when, rising)
+        for rising in (True, False)
+        for when in _crossings_of(obs, body, day_start, day_end, rising, use_center)
+    ]
+    return [(_from_ephem_date(when, local_tz), rising) for when, rising in sorted(events)]
 
 
 def _first_rise(crossings: list) -> Optional[datetime]:
@@ -331,10 +289,10 @@ def _hours_between(a: datetime, b: datetime) -> float:
 
 def _hours_above(start_above: bool, day_start: datetime, day_end: datetime,
                  crossings: list) -> float:
-    """Hours in the local day the sun spends above a height, over every stretch.
+    """Hours in the local day a body spends above the horizon, over every stretch.
 
-    *start_above* says whether it was above at *day_start*; *crossings* are
-    that height's crossings from :func:`_sun_crossings`.
+    *start_above* says whether it was above at *day_start*; *crossings* come
+    from :func:`_day_crossings`.
     """
     above = start_above
     total, since = 0.0, day_start
@@ -346,6 +304,45 @@ def _hours_above(start_above: bool, day_start: datetime, day_end: datetime,
     if above:
         total += _hours_between(since, day_end)
     return round(total, 3)
+
+
+def _moon_age_days(when) -> float:
+    """Days since the last new moon at ephem date *when*."""
+    return float(when - _ephem.previous_new_moon(when))
+
+
+def _lunation_fraction(when) -> float:
+    """How far through this lunation (new moon to next new moon) *when* is, in [0, 1)."""
+    previous_new = _ephem.previous_new_moon(when)
+    return float((when - previous_new) / (_ephem.next_new_moon(when) - previous_new))
+
+
+def _is_waxing(when) -> bool:
+    """True if the next full moon comes before the next new moon."""
+    return _ephem.next_full_moon(when) < _ephem.next_new_moon(when)
+
+
+def _moon_phase_name(when, age_days: float, illumination: float, waxing: bool) -> str:
+    """Name the moon's phase at ephem date *when*.
+
+    A principal phase is named within 12 hours of its exact moment; otherwise
+    crescent or gibbous (under or over half lit), waxing or waning.  The age
+    picks which principal phase is nearest (they are about 7.4 days apart),
+    and only that one is looked up.
+    """
+    principal = (
+        ("New Moon",      _ephem.previous_new_moon,           _ephem.next_new_moon),
+        ("First Quarter", _ephem.previous_first_quarter_moon, _ephem.next_first_quarter_moon),
+        ("Full Moon",     _ephem.previous_full_moon,          _ephem.next_full_moon),
+        ("Last Quarter",  _ephem.previous_last_quarter_moon,  _ephem.next_last_quarter_moon),
+    )
+    nearest = int(round(age_days / (_SYNODIC_MONTH_DAYS / 4))) % 4
+    name, previous_fn, next_fn = principal[nearest]
+    window = _PRINCIPAL_PHASE_WINDOW_H / 24.0
+    if min(when - previous_fn(when), next_fn(when) - when) <= window:
+        return name
+    shape = "Crescent" if illumination < 50.0 else "Gibbous"
+    return ("Waxing " if waxing else "Waning ") + shape
 
 
 # ── Datetime helpers ──────────────────────────────────────────────────────────
@@ -803,14 +800,13 @@ def get_solar_data(
 
     Identifies the local IANA timezone for *pt*, then calculates sunrise,
     sunset, solar noon, day length, and all three standard twilight phases
-    (Civil, Nautical, Astronomical).  The sun's position comes from
-    ``astral``; each crossing is found by bisecting the sun's height (within
-    a few seconds of ``ephem``).  All times are localised to the geographic
-    timezone of *pt*.
+    (Civil, Nautical, Astronomical) with ``ephem``.  All times are
+    localised to the geographic timezone of *pt*.
 
     Events are for the *local* calendar day at *pt*.  Sunrise is the sun's
     centre rising through -0.833° (refraction plus the sun's radius), less
     the horizon dip for *elevation*; twilight uses the depression angle.
+    Solar noon is the sun's transit (highest point) on that day.
 
     * **Polar day / night.**  If the sun never crosses a height that day, the
       matching values are ``None``.  ``'Day Length (Hours)'`` is then the
@@ -853,7 +849,7 @@ def get_solar_data(
     Raises
     ------
     ImportError
-        If ``astral`` or ``timezonefinder`` is not installed.
+        If ``ephem`` or ``timezonefinder`` is not installed.
     TypeError
         If *pt* or *eval_dt* are wrong types.
     ValueError
@@ -879,32 +875,36 @@ def get_solar_data(
     _validate_datetime(eval_dt, func_name="get_solar_data")
 
     eval_dt_utc, tz_name, tz_offset, local_tz, target_date = _astro_context(pt, eval_dt)
-    obs = Observer(latitude=pt.y, longitude=pt.x, elevation=elevation)
     # A higher observer sees further round the Earth: the horizon dips.
-    dip = _adjust_to_horizon(elevation)
+    dip = _horizon_dip_deg(elevation)
     day_start, day_end = _local_day_bounds(target_date, local_tz)
-    turns = _solar_turning_points(obs, target_date, local_tz, day_start, day_end)
-    solar_noon = noon(obs, date=target_date, tzinfo=local_tz)
+    sun = _ephem.Sun()
 
-    turn_heights = [_height(obs, t) for t in turns]
+    def crossings_at(height_deg):
+        obs = _ephem_observer(pt, elevation, height_deg)
+        found = _day_crossings(obs, sun, day_start, day_end, local_tz, use_center=True)
+        return obs, found
 
-    horizon = _HORIZON_DEG - dip
-    sun_crossings = _sun_crossings(obs, turns, turn_heights, horizon, local_tz)
+    obs, sun_crossings = crossings_at(_SUN_HORIZON_DEG - dip)
     rise = _first_rise(sun_crossings)
     set_ = _last_set(sun_crossings)
-    day_length = _hours_above(turn_heights[0] > horizon, day_start, day_end, sun_crossings)
+    start_above = _altitude_deg(obs, sun, day_start) > _SUN_HORIZON_DEG - dip
+    day_length = _hours_above(start_above, day_start, day_end, sun_crossings)
+    solar_noon = _from_ephem_date(
+        obs.next_transit(sun, start=_to_ephem_date(day_start)), local_tz
+    )
 
     if include_twilight:
         twilights = {}
-        for name, angle in ASTRAL_DEPRESSION_ANGLES.items():
-            crossings = _sun_crossings(obs, turns, turn_heights, -angle - dip, local_tz)
+        for name, angle in TWILIGHT_DEPRESSION_ANGLES.items():
+            _, crossings = crossings_at(-angle - dip)
             twilights[name] = {
                 "Dawn":       _first_rise(crossings),
                 "Dusk":       _last_set(crossings),
                 "Depression": angle,
             }
     else:
-        twilights = {name: None for name in ASTRAL_DEPRESSION_ANGLES}
+        twilights = {name: None for name in TWILIGHT_DEPRESSION_ANGLES}
 
     return {
         "Locality Point":          pt,
@@ -932,9 +932,11 @@ def get_lunar_data(
     """
     Return lunar phase, illumination, and rise/set times for a location.
 
-    Phase and illumination are computed with ``astral``.  Moonrise and
-    moonset require the optional ``ephem`` package; if unavailable both
-    values are ``None`` and ``'Ephem Available'`` is ``False``.
+    Computed with ``ephem``.  Phase, age and illumination are for local
+    noon on the day.  Moonrise and moonset are the first rise and last set
+    of the moon's upper edge (with 34' of refraction) during the local day;
+    the moon skips a rise or a set about once a month, and that value is
+    then ``None``.
 
     Parameters
     ----------
@@ -955,14 +957,25 @@ def get_lunar_data(
     dict
         Keys: ``'Locality Point'``, ``'Evaluation Date'``,
         ``'Timezone Name'``, ``'Timezone Offset (Hours)'``,
-        ``'Elevation (m)'``, ``'Phase Number'``, ``'Phase Name'``,
+        ``'Elevation (m)'``, ``'Lunation (Fraction)'``, ``'Phase Name'``,
         ``'Moon Age (Days)'``, ``'Is Waxing'``, ``'Illumination (%)'``,
-        ``'Moonrise'``, ``'Moonset'``, ``'Ephem Available'``.
+        ``'Moonrise'``, ``'Moonset'``.
+
+        * ``'Lunation (Fraction)'`` — how far through this lunation (new
+          moon to next new moon) the moment is, in [0, 1): 0 = new moon,
+          about 0.25 = first quarter, 0.5 = full, 0.75 = last quarter.
+          Comparable across months of different lengths.
+        * ``'Moon Age (Days)'`` — days since the last new moon (0–29.9).
+        * ``'Phase Name'`` — ``'New Moon'``, ``'First Quarter'``,
+          ``'Full Moon'`` or ``'Last Quarter'`` within 12 hours of that
+          moment, otherwise ``'Waxing Crescent'``, ``'Waxing Gibbous'``,
+          ``'Waning Gibbous'`` or ``'Waning Crescent'``.
+        * ``'Illumination (%)'`` — share of the disc lit.
 
     Raises
     ------
     ImportError
-        If ``astral`` is not installed.
+        If ``ephem`` or ``timezonefinder`` is not installed.
     TypeError
         If *pt* or *eval_dt* are wrong types.
     ValueError
@@ -978,7 +991,7 @@ def get_lunar_data(
     >>> from shapely.geometry import Point
     >>> from datetime import datetime
     >>> data = get_lunar_data(Point(-0.1278, 51.5074), datetime(2026, 4, 24))
-    >>> 0 <= data["Phase Number"] <= 27
+    >>> 0.0 <= data["Lunation (Fraction)"] < 1.0
     True
     >>> 0.0 <= data["Illumination (%)"] <= 100.0
     True
@@ -989,14 +1002,21 @@ def get_lunar_data(
 
     eval_dt_utc, tz_name, tz_offset, local_tz, target_date = _astro_context(pt, eval_dt)
 
-    phase_day = _astral_moon_phase(target_date)
-    illumination = (
-        (1.0 - math.cos(2.0 * math.pi * phase_day / _ASTRAL_LUNAR_SCALE)) / 2.0 * 100.0
-    )
+    day_start, day_end = _local_day_bounds(target_date, local_tz)
+    local_noon = datetime(target_date.year, target_date.month, target_date.day, 12,
+                          tzinfo=local_tz)
+    when = _to_ephem_date(local_noon)
+    moon = _ephem.Moon(when)
+    illumination = moon.phase          # percent of the disc lit
+    age = _moon_age_days(when)
+    waxing = _is_waxing(when)
 
     moonrise = moonset = None
-    if include_riseset and _EPHEM_AVAILABLE:
-        moonrise, moonset = _ephem_moon_riseset(pt, target_date, local_tz, elevation)
+    if include_riseset:
+        obs = _ephem_observer(pt, elevation, _MOON_HORIZON_DEG - _horizon_dip_deg(elevation))
+        crossings = _day_crossings(obs, _ephem.Moon(), day_start, day_end, local_tz,
+                                   use_center=False)
+        moonrise, moonset = _first_rise(crossings), _last_set(crossings)
 
     return {
         "Locality Point":          pt,
@@ -1004,12 +1024,13 @@ def get_lunar_data(
         "Timezone Name":           tz_name,
         "Timezone Offset (Hours)": tz_offset,
         "Elevation (m)":           elevation,
-        "Phase Number":            round(phase_day, 2),
-        "Phase Name":              _lunar_phase_name(phase_day),
-        "Moon Age (Days)":         round(phase_day, 1),
-        "Is Waxing":               phase_day < 13.5,
+        # Wrap after rounding: just before a new moon 0.99997 would round to
+        # 1.0, which is the next lunation's 0.0.
+        "Lunation (Fraction)":     round(_lunation_fraction(when), 4) % 1.0,
+        "Phase Name":              _moon_phase_name(when, age, illumination, waxing),
+        "Moon Age (Days)":         round(age, 1),
+        "Is Waxing":               waxing,
         "Illumination (%)":        round(illumination, 1),
         "Moonrise":                moonrise,
         "Moonset":                 moonset,
-        "Ephem Available":         _EPHEM_AVAILABLE,
     }

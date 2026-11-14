@@ -29,7 +29,6 @@ dependencies = [
     # line a fresh wherewhen-only install cannot be imported (#13).
     "packaging",
     "python-dateutil",
-    "astral",
     "ephem",
     "timezonefinder",
     "pyproj",

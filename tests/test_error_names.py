@@ -243,13 +243,15 @@ def test_latlon_to_point_rejects_strings_that_would_unpack_as_pairs():
 MISSING_PACKAGE_CASES = [
     ("pyproj", "from wherewhen.crs import ru_sk42_to_wgs84 as f; f(Point(30.0, 50.0))", "ru_sk42_to_wgs84"),
     ("pyproj", "from wherewhen.crs import wgs84_to_ru_sk42 as f; f(Point(30.0, 50.0))", "wgs84_to_ru_sk42"),
-    ("astral", "from wherewhen.temporal import get_solar_data as f; f(Point(30.0, 50.0), WHEN)", "get_solar_data"),
+    ("ephem", "from wherewhen.temporal import get_solar_data as f; f(Point(30.0, 50.0), WHEN)", "get_solar_data"),
+    ("ephem", "from wherewhen.temporal import get_lunar_data as f; f(Point(30.0, 50.0), WHEN)", "get_lunar_data"),
     ("timezonefinder", "from wherewhen.temporal import get_lunar_data as f; f(Point(30.0, 50.0), WHEN)", "get_lunar_data"),
     ("timezonefinder", "from wherewhen.temporal import point_to_tz_offset as f; f(Point(30.0, 50.0), WHEN)", "point_to_tz_offset"),
 ]
 
 
-@pytest.mark.parametrize("package, call, name", MISSING_PACKAGE_CASES, ids=[c[2] for c in MISSING_PACKAGE_CASES])
+@pytest.mark.parametrize("package, call, name", MISSING_PACKAGE_CASES,
+                         ids=[f"{c[2]}-{c[0]}" for c in MISSING_PACKAGE_CASES])
 def test_missing_package_errors_start_with_warning(package, call, name):
     import subprocess
     import sys
