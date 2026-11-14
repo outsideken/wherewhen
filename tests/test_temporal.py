@@ -325,8 +325,15 @@ class TestLunarData:
         full = self._lunar(self.LONDON, datetime(2026, 5, 1))
         assert full["Lunation (Fraction)"] == pytest.approx(0.5, abs=0.04)
 
+    def test_lunation_fraction_wraps_to_zero_just_before_new_moon(self):
+        # London noon 2026-02-17 is ~0.99997 through the lunation; rounded to
+        # four places that was 1.0 (Cursor, #24).  New moon 12:01 UTC.
+        m = self._lunar(self.LONDON, datetime(2026, 2, 17))
+        assert m["Phase Name"] == "New Moon"
+        assert m["Lunation (Fraction)"] == 0.0
+
     def test_lunation_fraction_stays_in_range_all_year(self):
-        for i in range(0, 365, 2):
+        for i in range(365):
             m = self._lunar(self.LONDON, datetime(2026, 1, 1) + timedelta(days=i))
             assert 0.0 <= m["Lunation (Fraction)"] < 1.0
             assert 0.0 <= m["Moon Age (Days)"] < 30.0
@@ -441,3 +448,29 @@ class TestWithoutTimezonefinder:
             "get_solar_data True True False",
             "get_lunar_data True True False",
         ]
+
+
+class TestPassSearch:
+    """_crossings_of keeps going when ephem can place neither a crossing nor an antitransit."""
+
+    def test_unplaceable_antitransit_moves_on_half_a_day(self):
+        import ephem
+        from wherewhen.temporal import _crossings_of
+
+        calls = []
+
+        class Observer:
+            def next_rising(self, body, start, use_center):
+                calls.append(("rising", float(start)))
+                raise ephem.AlwaysUpError("no crossing in this pass")
+
+            def next_antitransit(self, body, start):
+                calls.append(("antitransit", float(start)))
+                raise ephem.CircumpolarError("cannot place it")
+
+        start = datetime(2026, 6, 21, tzinfo=timezone.utc)
+        found = _crossings_of(Observer(), object(), start, start + timedelta(days=1),
+                              rising=True, use_center=True)
+        assert found == []
+        rising_starts = [s for kind, s in calls if kind == "rising"]
+        assert [round(b - a, 6) for a, b in zip(rising_starts, rising_starts[1:])] == [0.5]

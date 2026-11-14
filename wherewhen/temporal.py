@@ -65,6 +65,7 @@ from dateutil import parser as dateutil_parser
 from shapely.geometry import Point
 
 from wherewhen._messages import warn as _warn
+from wherewhen.geometry import EARTH_RADIUS_M
 from wherewhen._validators import (
     _validate_datetime,
     _validate_number,
@@ -133,8 +134,10 @@ _SYNODIC_MONTH_DAYS: float = 29.530588853
 # the evaluation moment is within this many hours of it.
 _PRINCIPAL_PHASE_WINDOW_H: float = 12.0
 
-# Earth radius for the horizon dip of a raised observer (mean radius).
-_EARTH_RADIUS_M: float = 6_371_008.8
+# When ephem cannot place the next antitransit, the pass search moves on by
+# this many days instead.  A pass lasts about a day, so half a day never
+# skips one.
+_PASS_FALLBACK_STEP_DAYS: float = 0.5
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
@@ -193,7 +196,7 @@ def _horizon_dip_deg(elevation_m: float) -> float:
     """Degrees the horizon drops for an observer *elevation_m* above sea level."""
     if elevation_m <= 0:
         return 0.0
-    return math.degrees(math.acos(_EARTH_RADIUS_M / (_EARTH_RADIUS_M + elevation_m)))
+    return math.degrees(math.acos(EARTH_RADIUS_M / (EARTH_RADIUS_M + elevation_m)))
 
 
 def _to_ephem_date(when: datetime):
@@ -231,7 +234,8 @@ def _crossings_of(obs, body, day_start: datetime, day_end: datetime, rising: boo
     ephem searches one pass across the sky at a time (antitransit to
     antitransit).  A pass with no crossing raises a circumpolar error, so the
     search then jumps to the next antitransit and carries on until the end of
-    the day.
+    the day.  If ephem cannot place that antitransit either, the search moves
+    on half a day, which still lands inside the next pass at the latest.
     """
     find = obs.next_rising if rising else obs.next_setting
     start, end = _to_ephem_date(day_start), _to_ephem_date(day_end)
@@ -248,7 +252,10 @@ def _crossings_of(obs, body, day_start: datetime, day_end: datetime, rising: boo
             found.append(when)
             cursor = _ephem.Date(when + _ephem.second)
             continue
-        cursor = _ephem.Date(obs.next_antitransit(body, start=cursor) + _ephem.second)
+        try:
+            cursor = _ephem.Date(obs.next_antitransit(body, start=cursor) + _ephem.second)
+        except _ephem.CircumpolarError:
+            cursor = _ephem.Date(cursor + _PASS_FALLBACK_STEP_DAYS)
         if cursor >= end:
             break
     return found
@@ -1017,7 +1024,9 @@ def get_lunar_data(
         "Timezone Name":           tz_name,
         "Timezone Offset (Hours)": tz_offset,
         "Elevation (m)":           elevation,
-        "Lunation (Fraction)":     round(_lunation_fraction(when), 4),
+        # Wrap after rounding: just before a new moon 0.99997 would round to
+        # 1.0, which is the next lunation's 0.0.
+        "Lunation (Fraction)":     round(_lunation_fraction(when), 4) % 1.0,
         "Phase Name":              _moon_phase_name(when, age, illumination, waxing),
         "Moon Age (Days)":         round(age, 1),
         "Is Waxing":               waxing,
