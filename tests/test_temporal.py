@@ -9,6 +9,24 @@ from datetime import datetime, timezone, timedelta
 from tests.conftest import LONDON_PT
 
 
+def _daylight_by_sampling(lonlat, day, tz_name, step_s=10):
+    """Hours the sun's centre spends above -0.833° in the local *day*, by sampling."""
+    from zoneinfo import ZoneInfo
+    from astral import Observer
+    from astral.sun import elevation
+    tz = ZoneInfo(tz_name)
+    nxt = day + timedelta(days=1)
+    start = datetime(day.year, day.month, day.day, tzinfo=tz).astimezone(timezone.utc)
+    end = datetime(nxt.year, nxt.month, nxt.day, tzinfo=tz).astimezone(timezone.utc)
+    obs = Observer(latitude=lonlat[1], longitude=lonlat[0])
+    steps = int((end - start).total_seconds() // step_s)
+    up = sum(
+        elevation(obs, start + timedelta(seconds=step_s * i + step_s / 2), with_refraction=False) > -0.833
+        for i in range(steps)
+    )
+    return up * step_s / 3600
+
+
 class TestDatetimeHelpers:
 
     def test_ensure_utc_naive_input(self):
@@ -121,6 +139,127 @@ class TestSolarLunar:
         dt = ensure_utc(datetime(2026, 4, 24, 12, 0, 0))
         lunar = get_lunar_data(LONDON_PT, dt)
         assert isinstance(lunar, dict)
+
+
+class TestSolarLocalDay:
+    """get_solar_data reports the local day at the point, everywhere on Earth."""
+
+    TOKYO = (139.69, 35.69)
+    HONOLULU = (-157.86, 21.31)
+    AUCKLAND = (174.76, -36.85)
+    SVALBARD = (15.6, 78.2)
+    MCMURDO = (166.67, -77.85)
+    TROMSO = (18.96, 69.65)
+
+    @staticmethod
+    def _solar(lonlat, dt):
+        from shapely.geometry import Point
+        from wherewhen.temporal import get_solar_data
+        return get_solar_data(Point(*lonlat), dt)
+
+    @pytest.mark.parametrize("lonlat", [TOKYO, HONOLULU, AUCKLAND, (-0.1278, 51.5074)])
+    def test_events_fall_on_the_local_date_in_order(self, lonlat):
+        s = self._solar(lonlat, datetime(2026, 4, 24))
+        assert s["Evaluation Date"].isoformat() == "2026-04-24"
+        for key in ("Sunrise", "Solar Noon", "Sunset"):
+            assert s[key].date().isoformat() == "2026-04-24", key
+        assert s["Sunrise"] < s["Solar Noon"] < s["Sunset"]
+        assert 0 < s["Day Length (Hours)"] < 24
+        civil = s["Civil"]
+        assert civil["Dawn"] < s["Sunrise"] and s["Sunset"] < civil["Dusk"]
+
+    def test_aware_datetime_uses_the_local_date(self):
+        # 08:00 in Tokyo on the 24th is 23:00 UTC on the 23rd; the day is the 24th.
+        jst = timezone(timedelta(hours=9))
+        s = self._solar(self.TOKYO, datetime(2026, 4, 24, 8, 0, tzinfo=jst))
+        assert s["Evaluation Date"].isoformat() == "2026-04-24"
+        assert s["Sunrise"].date().isoformat() == "2026-04-24"
+        assert 13 < s["Day Length (Hours)"] < 14
+
+    def test_naive_datetime_uses_its_date_as_written(self):
+        # Midnight UTC on the 24th is still the 23rd in Honolulu.  A naive
+        # datetime keeps the date written; an aware UTC one is converted.
+        naive = self._solar(self.HONOLULU, datetime(2026, 4, 24))
+        assert naive["Evaluation Date"].isoformat() == "2026-04-24"
+        assert naive["Day Length (Hours)"] == pytest.approx(12.816, abs=0.01)
+        aware = self._solar(self.HONOLULU, datetime(2026, 4, 24, tzinfo=timezone.utc))
+        assert aware["Evaluation Date"].isoformat() == "2026-04-23"
+        assert aware["Sunrise"].date().isoformat() == "2026-04-23"
+        assert aware["Day Length (Hours)"] == pytest.approx(12.797, abs=0.01)
+
+    @pytest.mark.parametrize("lonlat, month_day, hours", [
+        (SVALBARD, (6, 21), 24.0),    # polar day
+        (SVALBARD, (12, 21), 0.0),    # polar night
+        (MCMURDO, (6, 21), 0.0),      # southern polar night
+        (MCMURDO, (12, 21), 24.0),    # southern polar day
+        (TROMSO, (11, 28), 0.0),      # first day of polar night
+    ])
+    def test_polar_day_and_night_do_not_raise(self, lonlat, month_day, hours):
+        s = self._solar(lonlat, datetime(2026, *month_day))
+        assert s["Sunrise"] is None and s["Sunset"] is None
+        assert s["Solar Noon"] is not None
+        assert s["Day Length (Hours)"] == hours
+
+    # Days next to a polar period, where the sun can set just after midnight
+    # and rise again.  Expected hours come from _daylight_by_sampling, which
+    # counts 10-second steps above the horizon and shares no code with the
+    # crossing search.
+    @pytest.mark.parametrize("lonlat, month_day, rise_first", [
+        (TROMSO, (5, 17), False),     # polar day starts: ~00:03 set, ~01:17 rise, no evening set
+        (TROMSO, (7, 27), True),      # polar day ends: ~00:15 set, rise, evening set
+        (SVALBARD, (8, 25), True),    # polar day ends, as Tromsø
+        (MCMURDO, (2, 20), False),    # ~01:30 set, ~02:46 rise, up at midnight
+        (TROMSO, (11, 27), True),     # last day before polar night: ~20 minutes
+        (MCMURDO, (8, 20), True),     # first day after polar night; astral misses the rise
+    ])
+    def test_day_length_counts_every_hour_the_sun_is_up(self, lonlat, month_day, rise_first):
+        day = datetime(2026, *month_day)
+        s = self._solar(lonlat, day)
+        expected = _daylight_by_sampling(lonlat, day.date(), s["Timezone Name"])
+        assert s["Day Length (Hours)"] == pytest.approx(expected, abs=0.01)
+        assert s["Sunrise"].date() == s["Sunset"].date() == day.date()
+        # Sunrise is the first rise of the day and Sunset the last set.
+        assert (s["Sunrise"] < s["Sunset"]) is rise_first
+
+    def test_polar_day_end_keeps_the_morning_daylight(self):
+        # Tromsø 2026-07-27: up at midnight, sets ~00:15, rises ~01:29, sets
+        # ~23:59.  Rise-to-set alone (22.5 h) would drop the first 15 minutes.
+        s = self._solar(self.TROMSO, datetime(2026, 7, 27))
+        rise_to_set = (s["Sunset"] - s["Sunrise"]).total_seconds() / 3600
+        assert s["Day Length (Hours)"] > rise_to_set + 0.2
+
+    def test_events_agree_with_ephem(self):
+        ephem = pytest.importorskip("ephem")
+        from zoneinfo import ZoneInfo
+        lat, lon = 51.5074, -0.1278
+        s = self._solar((lon, lat), datetime(2026, 9, 1))
+        obs = ephem.Observer()
+        obs.lat, obs.lon, obs.pressure = str(lat), str(lon), 0
+        obs.horizon = "-0:49:59"   # -0.833°
+        start = datetime(2026, 9, 1, tzinfo=ZoneInfo("Europe/London")).astimezone(timezone.utc)
+        obs.date = start.strftime("%Y/%m/%d %H:%M:%S")
+        for key, fn in (("Sunrise", obs.next_rising), ("Sunset", obs.next_setting)):
+            expected = fn(ephem.Sun(), use_center=True).datetime().replace(tzinfo=timezone.utc)
+            assert abs((s[key] - expected).total_seconds()) < 10, key
+
+    @pytest.mark.parametrize("lonlat", [TOKYO, HONOLULU, AUCKLAND, SVALBARD, MCMURDO, TROMSO])
+    def test_a_year_of_day_lengths_stays_in_range(self, lonlat):
+        for i in range(0, 366, 3):
+            day = datetime(2026, 1, 1) + timedelta(days=i)
+            s = self._solar(lonlat, day)
+            assert s["Evaluation Date"] == day.date()
+            assert 0.0 <= s["Day Length (Hours)"] <= 24.0, day.date()
+            for key in ("Sunrise", "Sunset"):
+                if s[key] is not None:
+                    assert s[key].date() == day.date(), (key, day.date())
+
+    def test_lunar_data_uses_the_local_date(self):
+        from shapely.geometry import Point
+        from wherewhen.temporal import get_lunar_data
+        jst = timezone(timedelta(hours=9))
+        m = get_lunar_data(Point(*self.TOKYO), datetime(2026, 4, 24, 8, 0, tzinfo=jst))
+        assert m["Evaluation Date"].isoformat() == "2026-04-24"
+
 
 class TestWithoutTimezonefinder:
     """timezonefinder is a soft dependency: only coordinate lookups need it."""

@@ -10,6 +10,37 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Fixed
+- ``get_solar_data`` now reports the local day at the point. It used the UTC
+  date and computed in UTC, so away from UTC sunrise and sunset came from
+  different days: Tokyo on 2026-04-24 at 08:00 local gave a Day Length of
+  -10.6 h, Honolulu -11.2 h (now 13.4 h and 12.8 h). Events are on the local
+  calendar date. An aware ``eval_dt`` is converted to the location's
+  timezone before its date is taken. A naive one still picks the date as
+  written, but its times and day length change with this fix.
+- ``get_solar_data`` no longer raises astral's ``ValueError`` during polar
+  day or polar night. ``Sunrise`` / ``Sunset`` (and any twilight the sun
+  never reaches) are ``None``, and ``Day Length (Hours)`` is the whole local
+  day (normally 24.0) or 0.0.
+- ``Day Length (Hours)`` counts every hour the sun is up in the local day.
+  Next to a polar period the sun can set just after midnight and rise
+  again, and those early-morning minutes were dropped or miscounted
+  (Tromsø 2026-07-27 is 22.73 h). ``Sunrise`` is the first rise of the day
+  and ``Sunset`` the last set, so on such days ``Sunset`` can be earlier
+  than ``Sunrise``. Day length is measured in UTC, so a DST change that day
+  is counted.
+- Sunrise, sunset and twilight times are found from astral's sun position
+  by root-finding on the sun's height between solar noon and solar
+  midnight, rather than astral's ``sunrise`` / ``sunset`` / ``dawn`` /
+  ``dusk``. Those skipped some events whose local day spans two UTC days
+  (McMurdo's sunrise on 2026-08-20) and ran 10–60 s from ephem; the new
+  times are within about 5 s of ephem. A raised observer (``elevation``)
+  lowers the horizon by astral's dip formula, added to the standard
+  -0.833°; astral also shrank its refraction allowance below the horizon,
+  so at 2 000 m sunrise is now about 2 minutes earlier than astral gave.
+- ``get_lunar_data`` uses the same local date, so moonrise and moonset are
+  for the local day.
+
 ---
 
 ## [0.3.0] — 2026-11-07
