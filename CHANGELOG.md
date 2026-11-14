@@ -11,6 +11,12 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 ## [Unreleased]
 
 ### Fixed
+- The ``ISO8601`` docstring said it gives millisecond precision. It doesn't:
+  ``strftime`` writes six fractional digits (microseconds), and has no
+  millisecond code (#26). The docstring now says so, and that ``strptime``
+  reads one to six digits (so JEMA's ``.mmmZ`` parses) and returns a naive
+  datetime because the ``Z`` is matched as text. The constant is unchanged:
+  jematools re-exports it as part of its frozen API.
 - ``mgrs_to_point`` (and ``coordinate_to_point``) read MGRS written with
   spaces, as on maps: ``"18T WL 83960 07450"`` gives the same point as
   ``"18TWL8396007450"`` (#28). It raised the ``mgrs`` library's own
