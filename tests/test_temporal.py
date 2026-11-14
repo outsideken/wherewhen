@@ -33,6 +33,42 @@ def _daylight_by_sampling(lonlat, day, tz_name, step_s=10):
     return up * step_s / 3600
 
 
+class TestISO8601:
+    """ISO8601 writes microseconds and reads 1-6 fractional digits (#26)."""
+
+    def test_strftime_writes_six_fractional_digits(self):
+        from wherewhen.temporal import ISO8601
+        dt = datetime(2026, 1, 1, 12, 30, 45, 123456, tzinfo=timezone.utc)
+        assert dt.strftime(ISO8601) == "2026-01-01T12:30:45.123456Z"
+        assert datetime(2026, 1, 1, tzinfo=timezone.utc).strftime(ISO8601) == "2026-01-01T00:00:00.000000Z"
+
+    @pytest.mark.parametrize("text, microsecond", [
+        ("2026-01-01T12:30:45.123Z", 123000),      # JEMA milliseconds
+        ("2026-01-01T12:30:45.123456Z", 123456),   # what strftime writes
+        ("2026-01-01T12:30:45.1Z", 100000),
+    ])
+    def test_strptime_reads_one_to_six_digits(self, text, microsecond):
+        from wherewhen.temporal import ISO8601
+        assert datetime.strptime(text, ISO8601).microsecond == microsecond
+
+    def test_strptime_gives_a_naive_datetime_that_ensure_utc_fixes(self):
+        from wherewhen.temporal import ISO8601, ensure_utc
+        parsed = datetime.strptime("2026-01-01T12:30:45.123Z", ISO8601)
+        assert parsed.tzinfo is None
+        assert ensure_utc(parsed) == datetime(2026, 1, 1, 12, 30, 45, 123000, tzinfo=timezone.utc)
+
+    def test_round_trip(self):
+        from wherewhen.temporal import ISO8601, ensure_utc
+        dt = datetime(2026, 4, 24, 8, 0, 0, 987654, tzinfo=timezone.utc)
+        assert ensure_utc(datetime.strptime(dt.strftime(ISO8601), ISO8601)) == dt
+
+    def test_docstring_no_longer_claims_milliseconds(self):
+        import wherewhen.temporal as t
+        block = t.__doc__.split("ISO8601 : str", 1)[1].split("TWILIGHT_DEPRESSION_ANGLES", 1)[0]
+        assert "millisecond precision" not in block
+        assert "microseconds" in block
+
+
 class TestDatetimeHelpers:
 
     def test_ensure_utc_naive_input(self):

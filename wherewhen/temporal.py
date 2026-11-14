@@ -15,9 +15,18 @@ installation hint if they are unavailable.
 Module Attributes
 -----------------
 ISO8601 : str
-    ``strftime``/``strptime`` format string for ISO 8601 timestamps with
-    millisecond precision and literal Z suffix:
-    ``"%Y-%m-%dT%H:%M:%S.%fZ"``.
+    ``strftime``/``strptime`` format string for UTC ISO 8601 timestamps
+    with a literal ``Z`` suffix: ``"%Y-%m-%dT%H:%M:%S.%fZ"``.
+
+    * ``strftime`` writes **microseconds** (six digits), e.g.
+      ``2026-01-01T00:00:00.000000Z``; ``strftime`` has no millisecond
+      code, so for ``.mmmZ`` trim three digits (as jematools' temporal-range
+      formatter does).
+    * ``strptime`` reads one to six fractional digits, so millisecond
+      strings such as ``2026-01-01T00:00:00.123Z`` parse too.
+    * The ``Z`` is matched as text, so ``strptime`` returns a **naive**
+      datetime; pass it through :func:`ensure_utc`, and convert aware
+      datetimes to UTC before formatting.
 TWILIGHT_DEPRESSION_ANGLES : dict
     Solar depression angles in degrees for the three recognised twilight
     phases: ``'Civil'`` (6°), ``'Nautical'`` (12°), and
@@ -111,6 +120,7 @@ except ImportError:
     _TZ_AVAILABLE = False
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+# Writes microseconds (%f is six digits); reads 1-6 fractional digits.
 ISO8601: str = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 TWILIGHT_DEPRESSION_ANGLES: Dict[str, float] = {
