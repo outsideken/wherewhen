@@ -10,13 +10,23 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.4.0] — 2026-11-14
+
+Minor version because some results and names change: ``get_lunar_data``
+drops the ``'Phase Number'`` and ``'Ephem Available'`` keys and
+``ASTRAL_DEPRESSION_ANGLES`` is removed (see Removed), astral is no longer
+a dependency, and ``get_solar_data`` reports a different (correct) day away
+from UTC. See Changed, Removed and Fixed.
+
 ### Changed
 - ``get_solar_data`` and ``get_lunar_data`` use ephem only; **astral is no
   longer a dependency** (#23). ephem was already required for moonrise and
   moonset. Sunrise, sunset and twilight come from ephem's rise/set search,
   stepped through the whole local day so every crossing is found; solar
-  noon is the sun's transit. Times move by a few seconds (they were within
-  about 5 s of ephem).
+  noon is the sun's transit. Compared with 0.3.0, sunrise and sunset move
+  by up to about a minute (astral's ran 10–60 s from ephem's).
 - ``TWILIGHT_DEPRESSION_ANGLES`` replaces ``ASTRAL_DEPRESSION_ANGLES``
   (same values; the old name is removed, see Removed).
 - The horizon dip for a raised observer uses the mean Earth radius
@@ -46,7 +56,7 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ### Removed
 These go rather than stay as compatibility shims; nothing in the toolkit
-read them except h3tools' range test (updated in outsideken/h3-tools).
+read them except h3tools' range test (updated in outsideken/h3-tools#73).
 - ``ASTRAL_DEPRESSION_ANGLES``: use ``TWILIGHT_DEPRESSION_ANGLES``.
 - ``get_lunar_data`` key ``'Phase Number'`` (astral's 0–28 scale): use
   ``'Lunation (Fraction)'``, or ``'Moon Age (Days)'`` for days.
@@ -68,7 +78,7 @@ read them except h3tools' range test (updated in outsideken/h3-tools).
 - ``Day Length (Hours)`` counts every hour the sun is up in the local day.
   Next to a polar period the sun can set just after midnight and rise
   again, and those early-morning minutes were dropped or miscounted
-  (Tromsø 2026-07-27 is 22.73 h). ``Sunrise`` is the first rise of the day
+  (Tromsø 2026-07-27 is 22.72 h). ``Sunrise`` is the first rise of the day
   and ``Sunset`` the last set, so on such days ``Sunset`` can be earlier
   than ``Sunrise``. Day length is measured in UTC, so a DST change that day
   is counted.
