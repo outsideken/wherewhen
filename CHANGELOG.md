@@ -18,6 +18,27 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   times, coordinate round trips, code results) is measured when it is
   built, each with a labelled source line. ``tests/test_tracked_pdfs.py``
   fails if a release bumps the version without rebuilding it.
+- ``moon_position(pt, when)`` (#41): the moon's altitude and azimuth at a moment,
+  the moon's counterpart of ``sun_position`` (geometric, centre of the disc).
+- ``is_moon_up(pt, when)`` (#41): whether the moon is up, by the same definition
+  as ``get_lunar_data``'s moonrise and moonset (upper edge above -34',
+  less the horizon dip), so it flips at the reported times and a day with
+  neither is up or down throughout.
+- ``get_lunar_month(when)`` (#41): the new, first-quarter, full and last-quarter
+  moons of the lunation around *when*, and the next new moon, in UTC, with
+  the lunation's length in days.
+- ``get_sky_data(pt, eval_dt)`` (#41): one local day's ``get_solar_data`` and
+  ``get_lunar_data`` with context — the lunation (``get_lunar_month`` on the
+  local clock), a phase per day of it, a 5-minute day timeline of sun
+  altitude and moon-up (real time from local midnight to the next, so 23 or
+  25 hours on a clock-change day), and a year of sun altitudes (every 2nd
+  day, half-hourly, on the local clock). Enough to draw a sky summary for any place; h3tools' cell
+  card is built on it.
+
+``moon_position``, ``is_moon_up`` and ``get_lunar_month`` need ``ephem``
+only; ``get_sky_data`` also needs ``timezonefinder``. ``scripts/build_overview_pdf.py`` lists them
+under "sun & moon"; the tracked overview's function count updates when the
+next release rebuilds it.
 
 ---
 

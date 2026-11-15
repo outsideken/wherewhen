@@ -153,8 +153,12 @@ from wherewhen.temporal import (
     to_local_time,
     sun_position,
     is_daylight,
+    moon_position,
+    is_moon_up,
     get_solar_data,
     get_lunar_data,
+    get_lunar_month,
+    get_sky_data,
 )
 ```
 
@@ -164,7 +168,14 @@ nanoseconds from the size of the number. `format_iso8601(dt)` writes a UTC
 digits are cut, not rounded). `to_local_time(dt, pt)` converts to the local
 time at a point. `sun_position(pt, when)` gives the sun's altitude and
 azimuth, and `is_daylight(pt, when)` says whether it is between sunrise and
-sunset; both need `ephem` but not `timezonefinder`.
+sunset; `moon_position` and `is_moon_up` do the same for the moon, and
+`is_moon_up` flips at the moonrise and moonset `get_lunar_data` reports.
+`get_lunar_month(when)` gives the new, first-quarter, full and last-quarter
+moons of the lunation around a moment, in UTC. All of these need `ephem` but
+not `timezonefinder`. `get_sky_data(pt, eval_dt)` gathers one local day's sun
+and moon with context — the lunation, a disc per day of it, and day and year
+timelines of sun altitude and moon-up — enough to draw a sky summary for any
+place (h3tools' cell card draws it for an H3 cell).
 
 ### `wherewhen.crs`
 
@@ -293,8 +304,8 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 | `shapely` | All geometry modules |
 | `mgrs` | MGRS conversions |
 | `python-dateutil` | Flexible datetime parsing |
-| `timezonefinder` | `point_to_tz_offset`, `to_local_time`, solar/lunar data (soft) |
-| `ephem` | `get_solar_data`, `get_lunar_data`, `sun_position`, `is_daylight` (soft) |
+| `timezonefinder` | `point_to_tz_offset`, `to_local_time`, solar/lunar/sky data (soft) |
+| `ephem` | `get_solar_data`, `get_lunar_data`, `sun_position`, `is_daylight`, `moon_position`, `is_moon_up`, `get_lunar_month`, `get_sky_data` (soft) |
 | `pyproj` | SK-42 CRS conversions only (soft) |
 
 ---

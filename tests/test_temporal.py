@@ -710,3 +710,171 @@ class TestIsDaylight:
         later = civil_dawn + timedelta(minutes=5)
         assert not is_daylight(LONDON_PT, later)
         assert sun_position(LONDON_PT, later)["Altitude (Degrees)"] > -TWILIGHT_DEPRESSION_ANGLES["Civil"]
+
+
+LONGYEARBYEN_PT = Point(15.6, 78.2)
+
+
+class TestMoonPosition:
+
+    def test_keys_and_ranges(self):
+        from wherewhen.temporal import moon_position
+        pos = moon_position(LONDON_PT, datetime(2026, 12, 21, 20, 0))
+        assert set(pos) == {"Altitude (Degrees)", "Azimuth (Degrees)"}
+        assert -90 <= pos["Altitude (Degrees)"] <= 90
+        assert 0 <= pos["Azimuth (Degrees)"] < 360
+
+    def test_matches_ephem_directly(self):
+        import math
+        import ephem
+        from wherewhen.temporal import moon_position
+        when = datetime(2026, 12, 21, 20, 0)
+        obs = ephem.Observer()
+        obs.lat, obs.lon, obs.pressure, obs.date = str(LONDON_PT.y), str(LONDON_PT.x), 0, ephem.Date(when)
+        moon = ephem.Moon(obs)
+        pos = moon_position(LONDON_PT, when)
+        assert pos["Altitude (Degrees)"] == pytest.approx(math.degrees(moon.alt), abs=1e-9)
+        assert pos["Azimuth (Degrees)"] == pytest.approx(math.degrees(moon.az), abs=1e-9)
+
+    def test_aware_and_naive_utc_agree(self):
+        from wherewhen.temporal import moon_position
+        naive = datetime(2026, 12, 21, 20, 0)
+        tehran = naive.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=3, minutes=30)))
+        assert moon_position(LONDON_PT, naive) == moon_position(LONDON_PT, tehran)
+
+
+class TestIsMoonUp:
+
+    def test_flips_at_moonrise_and_moonset(self):
+        from wherewhen.temporal import get_lunar_data, is_moon_up
+        for pt in (LONDON_PT, Point(49.6779, 34.0880), Point(151.2093, -33.8688)):
+            data = get_lunar_data(pt, datetime(2026, 12, 21))
+            second = timedelta(seconds=1)
+            for rise in [data["Moonrise"]] if data["Moonrise"] else []:
+                assert not is_moon_up(pt, rise - second) and is_moon_up(pt, rise + second)
+            for moonset in [data["Moonset"]] if data["Moonset"] else []:
+                assert is_moon_up(pt, moonset - second) and not is_moon_up(pt, moonset + second)
+
+    def test_up_all_day_when_there_is_no_rise_or_set(self):
+        # 21 Dec 2026 at 78.2°N: polar night, and the moon never sets.
+        from wherewhen.temporal import get_lunar_data, is_moon_up
+        data = get_lunar_data(LONGYEARBYEN_PT, datetime(2026, 12, 21))
+        assert data["Moonrise"] is None and data["Moonset"] is None
+        start = datetime(2026, 12, 21, 0, tzinfo=timezone(timedelta(hours=1)))
+        assert all(is_moon_up(LONGYEARBYEN_PT, start + timedelta(minutes=m)) for m in range(0, 24 * 60, 10))
+
+    def test_elevation_brings_moonrise_earlier(self):
+        from wherewhen.temporal import get_lunar_data, is_moon_up
+        sea = get_lunar_data(LONDON_PT, datetime(2026, 12, 21))["Moonrise"]
+        high = get_lunar_data(LONDON_PT, datetime(2026, 12, 21), elevation=3000.0)["Moonrise"]
+        between = high + (sea - high) / 2
+        assert not is_moon_up(LONDON_PT, between)
+        assert is_moon_up(LONDON_PT, between, elevation=3000.0)
+
+    def test_needs_no_timezonefinder(self):
+        result = TestWithoutTimezonefinder()._run_blocked("""
+            from datetime import datetime
+            from shapely.geometry import Point
+            import wherewhen.temporal as t
+            pt, when = Point(15.6, 78.2), datetime(2026, 12, 21, 12)
+            print(t.is_moon_up(pt, when), t.moon_position(pt, when)["Altitude (Degrees)"] > 0,
+                  t.get_lunar_month(when)["Full Moon"].day)
+        """)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == "True True 24"
+
+
+class TestLunarMonth:
+
+    def test_december_2026(self):
+        from wherewhen.temporal import get_lunar_month
+        month = get_lunar_month(datetime(2026, 12, 21))
+        assert [month[k].strftime("%Y-%m-%d %H:%M") for k in
+                ("New Moon", "First Quarter", "Full Moon", "Last Quarter", "Next New Moon")] == [
+            "2026-12-09 00:51", "2026-12-17 05:42", "2026-12-24 01:28", "2026-12-30 18:59", "2027-01-07 20:24",
+        ]
+        assert month["Length (Days)"] == pytest.approx(29.8143, abs=1e-4)
+        assert all(month[k].tzinfo == timezone.utc for k in month if k != "Length (Days)")
+
+    def test_phases_are_in_order_and_bracket_the_moment(self):
+        from wherewhen.temporal import get_lunar_month
+        for day in range(1, 366, 17):
+            when = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=day)
+            m = get_lunar_month(when)
+            times = [m[k] for k in ("New Moon", "First Quarter", "Full Moon", "Last Quarter", "Next New Moon")]
+            assert times == sorted(times)
+            assert m["New Moon"] <= when < m["Next New Moon"]
+
+    def test_exactly_at_a_new_moon_starts_that_lunation(self):
+        from wherewhen.temporal import get_lunar_month
+        new = get_lunar_month(datetime(2026, 12, 21))["New Moon"]
+        # ephem's dates are floats: a round trip moves the moment by microseconds.
+        assert abs(get_lunar_month(new)["New Moon"] - new) < timedelta(milliseconds=1)
+        assert abs(get_lunar_month(new - timedelta(seconds=1))["Next New Moon"] - new) < timedelta(milliseconds=1)
+
+    def test_agrees_with_get_lunar_data_age(self):
+        from wherewhen.temporal import get_lunar_data, get_lunar_month
+        data = get_lunar_data(LONDON_PT, datetime(2026, 12, 21))
+        noon = datetime(2026, 12, 21, 12, tzinfo=timezone.utc)   # London is on UTC in December
+        age = (noon - get_lunar_month(noon)["New Moon"]).total_seconds() / 86400
+        assert age == pytest.approx(data["Moon Age (Days)"], abs=0.05)
+
+
+class TestSkyData:
+
+    def test_parts_agree_with_the_functions_it_composes(self):
+        from wherewhen.temporal import get_lunar_data, get_lunar_month, get_sky_data, get_solar_data
+        pt, day = Point(49.6779, 34.0880), datetime(2026, 12, 21)
+        sky = get_sky_data(pt, day)
+        assert sky["Solar"] == get_solar_data(pt, day)
+        assert sky["Lunar"] == get_lunar_data(pt, day)
+        # Same instant, found from a different moment: ephem's floats differ by microseconds.
+        assert abs(sky["Lunar Month"]["Full Moon"] - get_lunar_month(day)["Full Moon"]) < timedelta(milliseconds=1)
+        assert str(sky["Lunar Month"]["Full Moon"].tzinfo) == "Asia/Tehran"
+
+    def test_day_timeline_matches_the_events(self):
+        from wherewhen.temporal import get_sky_data
+        pt = Point(49.6779, 34.0880)
+        sky = get_sky_data(pt, datetime(2026, 12, 21))
+        times, alt, up = sky["Day"]["Times"], sky["Day"]["Sun Altitude (Degrees)"], sky["Day"]["Moon Up"]
+        assert len(times) == len(alt) == len(up) == 288
+        assert times[0].hour == 0 and str(times[0].tzinfo) == "Asia/Tehran"
+        noon = times.index(min(times, key=lambda t: abs(t - sky["Solar"]["Solar Noon"])))
+        assert alt[noon] == max(alt)
+        # Moon down before moonrise (14:20) and up after it.
+        rise = sky["Lunar"]["Moonrise"]
+        before = max(i for i, t in enumerate(times) if t < rise)
+        assert not up[before] and up[before + 1]
+
+    def test_month_moons_cover_the_lunation(self):
+        from wherewhen.temporal import get_sky_data
+        sky = get_sky_data(Point(15.6, 78.2), datetime(2026, 12, 21))
+        moons = sky["Month Moons"]
+        assert moons[0]["Date"] == sky["Lunar Month"]["New Moon"].date()
+        assert moons[-1]["Date"] == sky["Lunar Month"]["Next New Moon"].date()
+        full = next(m for m in moons if m["Date"] == sky["Lunar Month"]["Full Moon"].date())
+        assert full["Illumination (%)"] > 98
+        assert all(sky["Day"]["Moon Up"])          # polar night, moon never sets
+
+    def test_year_grid_shape_and_polar_seasons(self):
+        from wherewhen.temporal import get_sky_data
+        sky = get_sky_data(Point(15.6, 78.2), datetime(2026, 12, 21))
+        year = sky["Year"]
+        assert len(year["Hours"]) == 48 and len(year["Dates"]) == 183
+        assert all(len(row) == 183 for row in year["Sun Altitude (Degrees)"])
+        june = year["Dates"].index(next(d for d in year["Dates"] if d.month == 6 and d.day >= 20))
+        assert min(row[june] for row in year["Sun Altitude (Degrees)"]) > 0      # polar day
+        assert max(row[-6] for row in year["Sun Altitude (Degrees)"]) < -0.833   # polar night
+
+    def test_clock_change_days_are_23_and_25_hours(self):
+        # London: clocks go forward on 29 Mar 2026 and back on 25 Oct 2026.
+        from wherewhen.temporal import get_sky_data
+        for day, hours in ((datetime(2026, 3, 29), 23), (datetime(2026, 10, 25), 25), (datetime(2026, 6, 21), 24)):
+            times = get_sky_data(LONDON_PT, day)["Day"]["Times"]
+            utc = [t.astimezone(timezone.utc) for t in times]
+            assert len(times) == hours * 12
+            assert len(set(utc)) == len(utc)
+            assert all(b - a == timedelta(minutes=5) for a, b in zip(utc, utc[1:]))
+            assert times[0].hour == 0 and times[0].minute == 0
+            assert (times[-1] + timedelta(minutes=5)).astimezone(timezone.utc) == \
+                datetime(day.year, day.month, day.day + 1, tzinfo=times[0].tzinfo).astimezone(timezone.utc)
