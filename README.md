@@ -153,8 +153,11 @@ from wherewhen.temporal import (
     to_local_time,
     sun_position,
     is_daylight,
+    moon_position,
+    is_moon_up,
     get_solar_data,
     get_lunar_data,
+    get_lunar_month,
 )
 ```
 
@@ -164,7 +167,11 @@ nanoseconds from the size of the number. `format_iso8601(dt)` writes a UTC
 digits are cut, not rounded). `to_local_time(dt, pt)` converts to the local
 time at a point. `sun_position(pt, when)` gives the sun's altitude and
 azimuth, and `is_daylight(pt, when)` says whether it is between sunrise and
-sunset; both need `ephem` but not `timezonefinder`.
+sunset; `moon_position` and `is_moon_up` do the same for the moon, and
+`is_moon_up` flips at the moonrise and moonset `get_lunar_data` reports.
+`get_lunar_month(when)` gives the new, first-quarter, full and last-quarter
+moons of the lunation around a moment, in UTC. All of these need `ephem` but
+not `timezonefinder`.
 
 ### `wherewhen.crs`
 
@@ -294,7 +301,7 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 | `mgrs` | MGRS conversions |
 | `python-dateutil` | Flexible datetime parsing |
 | `timezonefinder` | `point_to_tz_offset`, `to_local_time`, solar/lunar data (soft) |
-| `ephem` | `get_solar_data`, `get_lunar_data`, `sun_position`, `is_daylight` (soft) |
+| `ephem` | `get_solar_data`, `get_lunar_data`, `sun_position`, `is_daylight`, `moon_position`, `is_moon_up`, `get_lunar_month` (soft) |
 | `pyproj` | SK-42 CRS conversions only (soft) |
 
 ---

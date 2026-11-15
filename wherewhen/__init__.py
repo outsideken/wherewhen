@@ -72,8 +72,11 @@ from wherewhen.temporal import (
     to_local_time,
     sun_position,
     is_daylight,
+    moon_position,
+    is_moon_up,
     get_solar_data,
     get_lunar_data,
+    get_lunar_month,
 )
 
 from wherewhen.crs import (

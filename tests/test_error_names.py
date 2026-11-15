@@ -57,8 +57,11 @@ BAD_CALLS = {
     "to_local_time": (temporal.to_local_time, ("x", ORIGIN)),
     "sun_position": (temporal.sun_position, ("not a point", WHEN)),
     "is_daylight": (temporal.is_daylight, ("not a point", WHEN)),
+    "moon_position": (temporal.moon_position, ("not a point", WHEN)),
+    "is_moon_up": (temporal.is_moon_up, ("not a point", WHEN)),
     "get_solar_data": (temporal.get_solar_data, ("not a point", WHEN)),
     "get_lunar_data": (temporal.get_lunar_data, ("not a point", WHEN)),
+    "get_lunar_month": (temporal.get_lunar_month, ("not a date",)),
     # crs
     "convert_crs": (crs.convert_crs, ("not a point", "EPSG:4326", "EPSG:3857")),
     "wgs84_to_cn_gcj02": (crs.wgs84_to_cn_gcj02, ("not a point",)),
@@ -123,6 +126,10 @@ MORE_BAD_CALLS = [
     ("sun_position", lambda: temporal.sun_position(ORIGIN, WHEN, elevation="x")),
     ("is_daylight", lambda: temporal.is_daylight(ORIGIN, "x")),
     ("is_daylight", lambda: temporal.is_daylight(ORIGIN, WHEN, elevation=True)),
+    ("moon_position", lambda: temporal.moon_position(ORIGIN, "x")),
+    ("moon_position", lambda: temporal.moon_position(ORIGIN, WHEN, elevation="x")),
+    ("is_moon_up", lambda: temporal.is_moon_up(ORIGIN, "x")),
+    ("is_moon_up", lambda: temporal.is_moon_up(Point(0.0, 95.0), WHEN)),
     ("convert_crs", lambda: crs.convert_crs(ORIGIN, "EPSG:4326", 123)),
     ("convert_crs", lambda: crs.convert_crs("not a point", "WGS84", "GCJ02")),
     # Delegation (Cursor's review of #5): the error must name the function called.
@@ -175,6 +182,9 @@ ALLOWED_PUBLIC_CALLS = {
     ("to_local_time", "ensure_utc"): "dt validated as to_local_time first",
     ("sun_position", "ensure_utc"): "when validated as sun_position first",
     ("is_daylight", "ensure_utc"): "when validated as is_daylight first",
+    ("moon_position", "ensure_utc"): "when validated as moon_position first",
+    ("is_moon_up", "ensure_utc"): "when validated as is_moon_up first",
+    ("get_lunar_month", "ensure_utc"): "when validated as get_lunar_month first",
 }
 
 
@@ -243,6 +253,8 @@ EXCEPTION_CLASSES = [
     (ValueError, lambda: temporal.format_iso8601(WHEN, digits=-1)),
     (TypeError, lambda: temporal.to_local_time(WHEN, "not a point")),
     (TypeError, lambda: temporal.is_daylight(ORIGIN, WHEN, elevation="x")),
+    (TypeError, lambda: temporal.moon_position(ORIGIN, WHEN, elevation="x")),
+    (TypeError, lambda: temporal.get_lunar_month("2026-12-21")),
 ]
 
 

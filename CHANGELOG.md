@@ -18,6 +18,19 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   times, coordinate round trips, code results) is measured when it is
   built, each with a labelled source line. ``tests/test_tracked_pdfs.py``
   fails if a release bumps the version without rebuilding it.
+- ``moon_position(pt, when)``: the moon's altitude and azimuth at a moment,
+  the moon's counterpart of ``sun_position`` (geometric, centre of the disc).
+- ``is_moon_up(pt, when)``: whether the moon is up, by the same definition
+  as ``get_lunar_data``'s moonrise and moonset (upper edge above -34',
+  less the horizon dip), so it flips at the reported times and a day with
+  neither is up or down throughout.
+- ``get_lunar_month(when)``: the new, first-quarter, full and last-quarter
+  moons of the lunation around *when*, and the next new moon, in UTC, with
+  the lunation's length in days.
+
+All three need ``ephem`` only. ``scripts/build_overview_pdf.py`` lists them
+under "sun & moon"; the tracked overview's function count updates when the
+next release rebuilds it.
 
 ---
 

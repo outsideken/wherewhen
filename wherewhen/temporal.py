@@ -58,11 +58,17 @@ sun_position
     The sun's altitude and azimuth at a moment, from a location.
 is_daylight
     Whether the sun is up at a location at a moment.
+moon_position
+    The moon's altitude and azimuth at a moment, from a location.
+is_moon_up
+    Whether the moon is up at a location at a moment.
 get_solar_data
     Compute solar events and twilight phases for a location on a given date.
 get_lunar_data
     Return moon phase, illumination percentage, and rise/set times for a
     location on a given date.
+get_lunar_month
+    The new, first-quarter, full and last-quarter moons of a lunation.
 
 Toolkit
 -------
@@ -106,8 +112,11 @@ __all__ = [
     "to_local_time",
     "sun_position",
     "is_daylight",
+    "moon_position",
+    "is_moon_up",
     "get_solar_data",
     "get_lunar_data",
+    "get_lunar_month",
 ]
 
 # ── Optional-dependency guards ────────────────────────────────────────────────
@@ -973,17 +982,16 @@ def to_local_time(dt: datetime, pt: Point) -> datetime:
     return ensure_utc(dt).astimezone(ZoneInfo(_tz_name_at(pt)))
 
 
-# ── Sun position ──────────────────────────────────────────────────────────────
+# ── Sun and moon positions ────────────────────────────────────────────────────
 
-def _sun_altitude_azimuth(pt: Point, when: datetime, elevation: float) -> Tuple[float, float]:
-    """Geometric altitude and azimuth (degrees) of the sun's centre at *when*."""
+def _altitude_azimuth(pt: Point, when: datetime, elevation: float, body) -> Tuple[float, float]:
+    """Geometric altitude and azimuth (degrees) of *body*'s centre at *when*."""
     obs = _ephem_observer(pt, elevation, 0.0)
-    sun = _ephem.Sun()
-    altitude = _altitude_deg(obs, sun, when)
-    return altitude, math.degrees(sun.az)
+    altitude = _altitude_deg(obs, body, when)
+    return altitude, math.degrees(body.az)
 
 
-def _check_sun_inputs(pt: Point, when: datetime, elevation, caller: str) -> None:
+def _check_position_inputs(pt: Point, when: datetime, elevation, caller: str) -> None:
     _require_ephem(caller)
     _validate_point(pt, func_name=caller)
     _validate_datetime(when, func_name=caller)
@@ -1041,8 +1049,8 @@ def sun_position(pt: Point, when: datetime, elevation: float = 0.0) -> dict:
     >>> pos["Altitude (Degrees)"] > 89
     True
     """
-    _check_sun_inputs(pt, when, elevation, "sun_position")
-    altitude, azimuth = _sun_altitude_azimuth(pt, ensure_utc(when), elevation)
+    _check_position_inputs(pt, when, elevation, "sun_position")
+    altitude, azimuth = _altitude_azimuth(pt, ensure_utc(when), elevation, _ephem.Sun())
     return {"Altitude (Degrees)": altitude, "Azimuth (Degrees)": azimuth}
 
 
@@ -1095,9 +1103,118 @@ def is_daylight(pt: Point, when: datetime, elevation: float = 0.0) -> bool:
     >>> is_daylight(london, datetime(2026, 6, 21, 0, 0, tzinfo=timezone.utc))
     False
     """
-    _check_sun_inputs(pt, when, elevation, "is_daylight")
-    altitude, _ = _sun_altitude_azimuth(pt, ensure_utc(when), elevation)
+    _check_position_inputs(pt, when, elevation, "is_daylight")
+    altitude, _ = _altitude_azimuth(pt, ensure_utc(when), elevation, _ephem.Sun())
     return altitude > _SUN_HORIZON_DEG - _horizon_dip_deg(elevation)
+
+
+def moon_position(pt: Point, when: datetime, elevation: float = 0.0) -> dict:
+    """
+    Return where the moon is in the sky at a moment, seen from a location.
+
+    Uses ``ephem``.  The altitude is the **geometric** height of the moon's
+    centre, without refraction, as in :func:`sun_position`.  For the
+    rise/set definition :func:`get_lunar_data` uses, ask :func:`is_moon_up`.
+
+    Parameters
+    ----------
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+    when : datetime
+        The moment.  May be naive (assumed UTC) or aware.
+    elevation : float, optional
+        Observer elevation above sea level in metres.  Default ``0.0``.
+
+    Returns
+    -------
+    dict
+        * ``'Altitude (Degrees)'`` : float — ``-90`` to ``90``; above
+          ``0`` the centre is above the true horizon.
+        * ``'Azimuth (Degrees)'`` : float — ``0`` to ``360``, clockwise
+          from true north (``90`` = east).
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` is not installed.  ``timezonefinder`` is not needed.
+    TypeError
+        If *pt* is not a Point, *when* is not a datetime, or *elevation*
+        is not a number.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    is_moon_up : Whether the moon is up at a moment.
+    get_lunar_data : Phase, illumination, moonrise and moonset for a day.
+    sun_position : The same for the sun.
+
+    Examples
+    --------
+    >>> from datetime import datetime, timezone
+    >>> from shapely.geometry import Point
+    >>> pos = moon_position(Point(15.6, 78.2), datetime(2026, 12, 21, 12, tzinfo=timezone.utc))
+    >>> pos["Altitude (Degrees)"] > 0          # polar night, but the moon is up
+    True
+    """
+    _check_position_inputs(pt, when, elevation, "moon_position")
+    altitude, azimuth = _altitude_azimuth(pt, ensure_utc(when), elevation, _ephem.Moon())
+    return {"Altitude (Degrees)": altitude, "Azimuth (Degrees)": azimuth}
+
+
+def is_moon_up(pt: Point, when: datetime, elevation: float = 0.0) -> bool:
+    """
+    Return ``True`` if the moon is up at *pt* at the moment *when*.
+
+    "Up" means between moonrise and moonset as :func:`get_lunar_data`
+    defines them: the moon's upper edge is above -34' (refraction), less
+    the horizon dip for *elevation*.  So the answer flips at the times
+    ``get_lunar_data`` reports, and a day with no moonrise and no moonset
+    is all ``True`` or all ``False``.
+
+    Parameters
+    ----------
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+    when : datetime
+        The moment.  May be naive (assumed UTC) or aware.
+    elevation : float, optional
+        Observer elevation above sea level in metres.  Default ``0.0``.
+
+    Returns
+    -------
+    bool
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` is not installed.  ``timezonefinder`` is not needed.
+    TypeError
+        If *pt* is not a Point, *when* is not a datetime, or *elevation*
+        is not a number.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    moon_position : The moon's altitude and azimuth.
+    get_lunar_data : Moonrise and moonset for a day.
+    is_daylight : The same for the sun.
+
+    Examples
+    --------
+    >>> from datetime import datetime, timezone
+    >>> from shapely.geometry import Point
+    >>> longyearbyen = Point(15.6, 78.2)
+    >>> is_moon_up(longyearbyen, datetime(2026, 12, 21, 0, tzinfo=timezone.utc))
+    True
+    """
+    _check_position_inputs(pt, when, elevation, "is_moon_up")
+    moon = _ephem.Moon()
+    altitude, _ = _altitude_azimuth(pt, ensure_utc(when), elevation, moon)
+    # Upper edge above the refracted horizon: centre above it less the radius.
+    radius_deg = math.degrees(moon.radius)
+    return altitude > _MOON_HORIZON_DEG - radius_deg - _horizon_dip_deg(elevation)
 
 
 # ── Solar data ────────────────────────────────────────────────────────────────
@@ -1348,3 +1465,68 @@ def get_lunar_data(
         "Moonrise":                moonrise,
         "Moonset":                 moonset,
     }
+
+
+# ── Lunar month ───────────────────────────────────────────────────────────────
+
+def get_lunar_month(when: datetime) -> dict:
+    """
+    Return the principal moon phases of the lunation that contains *when*.
+
+    A lunation runs from one new moon to the next (about 29.5 days).  The
+    phases happen at the same instant everywhere, so no location is needed;
+    convert the times to a local clock with :func:`shift_tz_by_name` or
+    :func:`to_local_time`.  Computed with ``ephem``.
+
+    Parameters
+    ----------
+    when : datetime
+        A moment in the lunation.  May be naive (assumed UTC) or aware.
+
+    Returns
+    -------
+    dict
+        * ``'New Moon'``, ``'First Quarter'``, ``'Full Moon'``,
+          ``'Last Quarter'``, ``'Next New Moon'`` : datetime — UTC, in
+          that order.  ``'New Moon'`` is at or before *when*;
+          ``'Next New Moon'`` is after it.
+        * ``'Length (Days)'`` : float — from new moon to next new moon.
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` is not installed.
+    TypeError
+        If *when* is not a datetime.
+
+    See Also
+    --------
+    get_lunar_data : Phase, illumination and moon age at a location on a day.
+
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> month = get_lunar_month(datetime(2026, 12, 21))
+    >>> month["Full Moon"].strftime("%d %b %Y")
+    '24 Dec 2026'
+    >>> 29.2 < month["Length (Days)"] < 29.9
+    True
+    """
+    _require_ephem("get_lunar_month")
+    _validate_datetime(when, func_name="get_lunar_month")
+    at = _to_ephem_date(ensure_utc(when))
+    # ephem's previous_new_moon is strictly before; exactly at a new moon, start there.
+    start = _ephem.previous_new_moon(at)
+    if _ephem.next_new_moon(start) <= at:
+        start = _ephem.next_new_moon(start)
+    end = _ephem.next_new_moon(start)
+    moments = (
+        ("New Moon",      start),
+        ("First Quarter", _ephem.next_first_quarter_moon(start)),
+        ("Full Moon",     _ephem.next_full_moon(start)),
+        ("Last Quarter",  _ephem.next_last_quarter_moon(start)),
+        ("Next New Moon", end),
+    )
+    out = {name: _from_ephem_date(_ephem.Date(moment), timezone.utc) for name, moment in moments}
+    out["Length (Days)"] = round(float(end - start), 4)
+    return out
