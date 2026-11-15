@@ -1572,12 +1572,16 @@ def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
         * ``'Month Moons'`` : list of dict — one per local day from the new
           moon's date to the next new moon's, at local noon:
           ``{'Date', 'Illumination (%)', 'Is Waxing'}``.
-        * ``'Day'`` : dict — ``'Times'`` (local, every 5 minutes),
-          ``'Sun Altitude (Degrees)'`` and ``'Moon Up'`` (bool).
+        * ``'Day'`` : dict — ``'Times'`` (local, every 5 minutes of real
+          time from local midnight to the next, so 23 or 25 hours on a
+          clock-change day), ``'Sun Altitude (Degrees)'`` and ``'Moon Up'``
+          (bool).
         * ``'Year'`` : dict — ``'Dates'`` (every 2nd day of the year),
           ``'Hours'`` (local clock, every 30 minutes, mid-slot) and
           ``'Sun Altitude (Degrees)'`` (one row per hour slot, one column
-          per date).
+          per date).  Rows are clock times, so a daylight-saving change
+          shows as a one-hour step; on a change date the slot the clock
+          skips is sampled at the time it maps to.
 
     Raises
     ------
@@ -1624,7 +1628,16 @@ def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
         moons.append({"Date": d, "Illumination (%)": m["Illumination (%)"], "Is Waxing": m["Is Waxing"]})
         d += timedelta(days=1)
 
-    times = [local_clock(day, m) for m in range(0, 24 * 60, _SKY_DAY_STEP_MIN)]
+    # Real instants, not clock steps: a clock-change day is 23 or 25 hours long.
+    day_start = local_clock(day, 0).astimezone(timezone.utc)
+    next_day = day + timedelta(days=1)
+    day_end = datetime(next_day.year, next_day.month, next_day.day, tzinfo=local_tz).astimezone(timezone.utc)
+    step = timedelta(minutes=_SKY_DAY_STEP_MIN)
+    times = []
+    t = day_start
+    while t < day_end:
+        times.append(t.astimezone(local_tz))
+        t += step
     dates = []
     d = day.replace(month=1, day=1)
     while d.year == day.year:

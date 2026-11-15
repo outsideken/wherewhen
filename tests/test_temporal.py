@@ -865,3 +865,16 @@ class TestSkyData:
         june = year["Dates"].index(next(d for d in year["Dates"] if d.month == 6 and d.day >= 20))
         assert min(row[june] for row in year["Sun Altitude (Degrees)"]) > 0      # polar day
         assert max(row[-6] for row in year["Sun Altitude (Degrees)"]) < -0.833   # polar night
+
+    def test_clock_change_days_are_23_and_25_hours(self):
+        # London: clocks go forward on 29 Mar 2026 and back on 25 Oct 2026.
+        from wherewhen.temporal import get_sky_data
+        for day, hours in ((datetime(2026, 3, 29), 23), (datetime(2026, 10, 25), 25), (datetime(2026, 6, 21), 24)):
+            times = get_sky_data(LONDON_PT, day)["Day"]["Times"]
+            utc = [t.astimezone(timezone.utc) for t in times]
+            assert len(times) == hours * 12
+            assert len(set(utc)) == len(utc)
+            assert all(b - a == timedelta(minutes=5) for a, b in zip(utc, utc[1:]))
+            assert times[0].hour == 0 and times[0].minute == 0
+            assert (times[-1] + timedelta(minutes=5)).astimezone(timezone.utc) == \
+                datetime(day.year, day.month, day.day + 1, tzinfo=times[0].tzinfo).astimezone(timezone.utc)

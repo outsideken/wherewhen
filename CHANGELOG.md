@@ -30,8 +30,9 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 - ``get_sky_data(pt, eval_dt)``: one local day's ``get_solar_data`` and
   ``get_lunar_data`` with context — the lunation (``get_lunar_month`` on the
   local clock), a phase per day of it, a 5-minute day timeline of sun
-  altitude and moon-up, and a year of sun altitudes (every 2nd day,
-  half-hourly). Enough to draw a sky summary for any place; h3tools' cell
+  altitude and moon-up (real time from local midnight to the next, so 23 or
+  25 hours on a clock-change day), and a year of sun altitudes (every 2nd
+  day, half-hourly, on the local clock). Enough to draw a sky summary for any place; h3tools' cell
   card is built on it.
 
 ``moon_position``, ``is_moon_up`` and ``get_lunar_month`` need ``ephem``
