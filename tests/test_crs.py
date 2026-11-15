@@ -115,10 +115,47 @@ class TestConvertCrs:
         expected = wgs84_to_ru_sk42(MOSCOW_PT)
         assert abs(result.x - expected.x) < 1e-9
 
-    def test_same_crs_raises(self):
+    @pytest.mark.parametrize("crs", ["WGS84", "GCJ02", "BD09", "SK42", "bd09", "Gcj02"])
+    def test_same_crs_returns_the_point_unchanged(self, crs):
+        # Was "Unsupported CRS conversion" (#31).
         from wherewhen.crs import convert_crs
-        with pytest.raises((ValueError, KeyError), match="⚠️"):
-            convert_crs(LONDON_PT, "WGS84", "WGS84")
+        assert convert_crs(BEIJING_PT, crs, crs.upper()) is BEIJING_PT
+
+    def test_gcj02_to_bd09_goes_through_wgs84(self):
+        from wherewhen.crs import cn_gcj02_to_wgs84, convert_crs, wgs84_to_cn_bd09, wgs84_to_cn_gcj02
+        gcj = wgs84_to_cn_gcj02(BEIJING_PT)
+        result = convert_crs(gcj, "GCJ02", "BD09")
+        assert result.equals(wgs84_to_cn_bd09(cn_gcj02_to_wgs84(gcj)))
+        # and lands where BD-09 of the original WGS-84 point is (GCJ-02's
+        # inverse iterates to well under a millimetre)
+        assert abs(result.x - wgs84_to_cn_bd09(BEIJING_PT).x) < 1e-8
+        assert abs(result.y - wgs84_to_cn_bd09(BEIJING_PT).y) < 1e-8
+
+    def test_bd09_to_gcj02_goes_through_wgs84(self):
+        from wherewhen.crs import cn_bd09_to_wgs84, convert_crs, wgs84_to_cn_bd09, wgs84_to_cn_gcj02
+        bd = wgs84_to_cn_bd09(BEIJING_PT)
+        result = convert_crs(bd, "BD09", "GCJ02")
+        assert result.equals(wgs84_to_cn_gcj02(cn_bd09_to_wgs84(bd)))
+        assert abs(result.x - wgs84_to_cn_gcj02(BEIJING_PT).x) < _TOL
+
+    @pytest.mark.parametrize("source, target", [
+        (a, b) for a in ("WGS84", "GCJ02", "BD09", "SK42")
+        for b in ("WGS84", "GCJ02", "BD09", "SK42") if a != b
+    ])
+    def test_every_pair_converts_and_comes_back(self, source, target):
+        from wherewhen.crs import convert_crs
+        there = convert_crs(BEIJING_PT, source, target)
+        back = convert_crs(there, target, source)
+        assert abs(back.x - BEIJING_PT.x) < _TOL and abs(back.y - BEIJING_PT.y) < _TOL
+
+    @pytest.mark.parametrize("source, target, bad", [
+        ("WGS84", "EPSG:4326", "EPSG:4326"),
+        ("UNKNOWN_CRS", "WGS84", "UNKNOWN_CRS"),
+    ])
+    def test_unsupported_crs_is_named_with_the_supported_list(self, source, target, bad):
+        from wherewhen.crs import convert_crs
+        with pytest.raises(ValueError, match=rf"^⚠️ \[convert_crs\] Unsupported CRS '{bad}'\. Supported: WGS84, GCJ02, BD09, SK42"):
+            convert_crs(LONDON_PT, source, target)
 
     def test_unknown_crs_raises(self):
         from wherewhen.crs import convert_crs

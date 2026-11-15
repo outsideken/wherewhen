@@ -48,7 +48,7 @@ dependency raises ``❌ [function_name] …`` via :mod:`wherewhen._messages`.
 """
 
 import math
-from typing import Dict, Tuple
+from typing import Tuple
 
 from shapely.geometry import Point
 
@@ -460,24 +460,30 @@ def wgs84_to_ru_sk42(pt: Point) -> Point:
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
-_CRS_CONVERSIONS: Dict[Tuple[str, str], object] = {
-    ("WGS84", "GCJ02"): _wgs84_to_cn_gcj02,
-    ("GCJ02", "WGS84"): _cn_gcj02_to_wgs84,
-    ("WGS84", "BD09"):  _wgs84_to_cn_bd09,
-    ("BD09",  "WGS84"): _cn_bd09_to_wgs84,
-    ("SK42",  "WGS84"): _ru_sk42_to_wgs84,
-    ("WGS84", "SK42"):  _wgs84_to_ru_sk42,
+# Each supported CRS's conversion to and from WGS-84. convert_crs routes any
+# other pair through WGS-84; the extra leg adds no measurable error (GCJ-02's
+# inverse iterates to well under a millimetre).
+_TO_WGS84 = {
+    "GCJ02": _cn_gcj02_to_wgs84,
+    "BD09":  _cn_bd09_to_wgs84,
+    "SK42":  _ru_sk42_to_wgs84,
 }
-
-_SUPPORTED_PAIRS = ", ".join(f"{a}→{b}" for a, b in _CRS_CONVERSIONS)
+_FROM_WGS84 = {
+    "GCJ02": _wgs84_to_cn_gcj02,
+    "BD09":  _wgs84_to_cn_bd09,
+    "SK42":  _wgs84_to_ru_sk42,
+}
+_SUPPORTED_CRS = ("WGS84",) + tuple(_TO_WGS84)
 
 
 def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
     """
     Convert a Point from one coordinate reference system to another.
 
-    A single entry point for all supported CRS conversions.  CRS identifiers
-    are case-insensitive strings.
+    A single entry point for all supported CRS conversions, between any two
+    of ``"WGS84"``, ``"GCJ02"``, ``"BD09"`` and ``"SK42"`` (case-insensitive).
+    The same CRS on both sides returns *pt* unchanged; any pair not involving
+    WGS-84 goes through it (e.g. GCJ-02 to BD-09 is GCJ-02 -> WGS-84 -> BD-09).
 
     Parameters
     ----------
@@ -499,7 +505,8 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
     TypeError
         If *pt* is not a :class:`shapely.geometry.Point`.
     ValueError
-        If the *from_crs* / *to_crs* pair is not supported.
+        If *from_crs* or *to_crs* is not a supported CRS, or a converted
+        coordinate falls outside WGS-84 bounds.
     ImportError
         If the conversion requires ``pyproj`` and it is not installed
         (SK-42 conversions only).
@@ -512,18 +519,25 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
     >>> pt_back = convert_crs(pt_gcj, "GCJ02", "WGS84")
     >>> abs(pt_back.x - pt.x) < 0.0001
     True
+
+    >>> convert_crs(pt, "wgs84", "WGS84") is pt
+    True
+    >>> pt_bd = convert_crs(pt_gcj, "GCJ02", "BD09")   # via WGS-84
     """
     _validate_point(pt, func_name="convert_crs")
     _validate_string(from_crs, func_name="convert_crs")
     _validate_string(to_crs, func_name="convert_crs")
-    key = (from_crs.upper(), to_crs.upper())
-    fn = _CRS_CONVERSIONS.get(key)
-    if fn is None:
-        raise ValueError(
-            _warn(
-                "convert_crs",
-                f"Unsupported CRS conversion: {from_crs!r} → {to_crs!r}. "
-                f"Supported pairs: {_SUPPORTED_PAIRS}",
+    source, target = from_crs.upper(), to_crs.upper()
+    for name, given in ((source, from_crs), (target, to_crs)):
+        if name not in _SUPPORTED_CRS:
+            raise ValueError(
+                _warn(
+                    "convert_crs",
+                    f"Unsupported CRS {given!r}. "
+                    f"Supported: {', '.join(_SUPPORTED_CRS)} (any case).",
+                )
             )
-        )
-    return fn(pt=pt, func_name="convert_crs")
+    if source == target:
+        return pt
+    wgs = pt if source == "WGS84" else _TO_WGS84[source](pt=pt, func_name="convert_crs")
+    return wgs if target == "WGS84" else _FROM_WGS84[target](pt=wgs, func_name="convert_crs")

@@ -10,6 +10,17 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Fixed
+- ``convert_crs`` converts between any two of WGS84, GCJ02, BD09 and SK42
+  (#31). It knew only the six pairs to or from WGS-84, so ``"GCJ02"`` to
+  ``"BD09"``, SK42 to GCJ02 / BD09 and their reverses raised "Unsupported
+  CRS conversion"; they now go through WGS-84 (the extra leg adds no
+  measurable error). The same CRS on both sides, e.g. ``"WGS84"`` to
+  ``"WGS84"``, returns the point unchanged instead of raising, so code that
+  picks the CRS at run time needs no special case. An unknown name raises
+  ``⚠️ [convert_crs] Unsupported CRS 'EPSG:4326'. Supported: WGS84, GCJ02,
+  BD09, SK42 (any case).``
+
 ---
 
 ## [0.4.1] — 2026-11-14
