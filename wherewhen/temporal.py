@@ -420,8 +420,11 @@ def epoch_to_datetime(value: Union[int, float]) -> datetime:
     would land after 2286 in the smaller unit.  A millisecond timestamp
     after 2286 is therefore read as microseconds.
 
-    Integers are converted exactly; nanoseconds are cut to the microsecond
-    (a datetime holds no finer).  Floats are divided by the unit first.
+    Integers are converted exactly, except that nanoseconds are rounded
+    down to the microsecond (a datetime holds no finer).  Down means
+    towards the earlier time, so a negative nanosecond value can land 1 µs
+    earlier than simply dropping the last three digits.  Floats are divided
+    by the unit first.
 
     Parameters
     ----------
@@ -877,13 +880,14 @@ def point_to_tz_offset(pt: Point, eval_dt: datetime) -> Tuple[str, float]:
         * ``offset_in_hours`` : float — UTC offset in hours (e.g. ``1.0``
           for BST, ``-5.0`` for EST).
 
-        For locations outside all mapped timezone polygons (e.g. open
-        ocean), falls back to ``('UTC', 0.0)``.
+        At sea ``timezonefinder`` gives the nautical zone (e.g.
+        ``'Etc/GMT+2'`` at 30° W on the equator).  If it finds no zone at
+        all, the result is ``('UTC', 0.0)``.
 
     Raises
     ------
     ImportError
-        If ``timezonefinder`` or ``zoneinfo`` is not installed.
+        If ``timezonefinder`` is not installed.
     TypeError
         If *pt* is not a :class:`shapely.geometry.Point`, or *eval_dt* is
         not a :class:`datetime`.
@@ -923,8 +927,9 @@ def to_local_time(dt: datetime, pt: Point) -> datetime:
 
     Looks up the IANA timezone at *pt* (as :func:`point_to_tz_offset`
     does) and converts *dt* to it, keeping the same moment.  Daylight
-    saving is the rule in effect at *dt*.  A location outside every mapped
-    timezone (open ocean) gets UTC.
+    saving is the rule in effect at *dt*.  At sea ``timezonefinder`` gives
+    the nautical zone (e.g. ``Etc/GMT+2`` at 30° W on the equator); if it
+    finds no zone at all, UTC is used.
 
     Parameters
     ----------
@@ -941,7 +946,7 @@ def to_local_time(dt: datetime, pt: Point) -> datetime:
     Raises
     ------
     ImportError
-        If ``timezonefinder`` or ``zoneinfo`` is not installed.
+        If ``timezonefinder`` is not installed.
     TypeError
         If *dt* is not a :class:`datetime`, or *pt* is not a
         :class:`shapely.geometry.Point`.
