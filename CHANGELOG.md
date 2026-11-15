@@ -10,6 +10,18 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.4.2] — 2026-11-15
+
+Patch release. **GCJ-02 and BD-09 now apply only in mainland China, Hong
+Kong and Macau.** On 0.4.1 they also offset points in Korea, Taiwan,
+northern Vietnam and Mongolia (330–480 m), and BD-09 shifted points
+anywhere in the world (Moscow 775 m), so check results from those
+conversions outside China. Pass ``skip_region_check=True`` for data you
+know was offset there too. ``convert_crs`` now converts between any two
+supported CRS. See Added and Fixed.
+
 ### Added
 - ``skip_region_check`` keyword on ``wgs84_to_cn_gcj02``, ``cn_gcj02_to_wgs84``,
   ``wgs84_to_cn_bd09``, ``cn_bd09_to_wgs84`` and ``convert_crs`` (#33),
@@ -32,7 +44,7 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   Kinmen included, is outside.
 - BD-09 applies only inside that region too (#33). Baidu's +0.0065°/+0.006°
   step was added or removed everywhere, so e.g.
-  ``convert_crs(moscow, "SK42", "BD09")`` moved Moscow 775 m; points outside
+  ``wgs84_to_cn_bd09(moscow)`` moved Moscow 775 m; points outside
   are now returned unchanged by all four Chinese conversions.
 - ``cn_gcj02_to_wgs84`` and ``cn_bd09_to_wgs84`` decide inside/outside on
   their WGS-84 result, so every point the forward conversion offset comes
