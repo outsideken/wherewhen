@@ -514,7 +514,7 @@ class TestPassSearch:
         assert [round(b - a, 6) for a, b in zip(rising_starts, rising_starts[1:])] == [0.5]
 
 
-# ── 0.5.0 time features ──────────────────────────────────────────────────────
+# ── Time features (#36) ──────────────────────────────────────────────────────
 
 _INSTANT = datetime(2024, 5, 5, 23, 6, 40, 123456, tzinfo=timezone.utc)
 _INSTANT_S = 1714950400        # _INSTANT without the fraction

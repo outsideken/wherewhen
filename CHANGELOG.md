@@ -10,6 +10,17 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.5.0] — 2026-11-15
+
+Minor release: four new time functions (``sun_position``, ``is_daylight``,
+``to_local_time``, ``format_iso8601``) and microsecond / nanosecond epochs.
+**One reading changes:** ``epoch_to_datetime`` now reads integer or float
+timestamps from 1e13 up as microseconds or nanoseconds, so a millisecond
+timestamp after the year 2286 gives a 1970s date. Seconds and ordinary
+millisecond timestamps give the same datetime as on 0.4.2. See Changed.
+
 ### Added
 - ``sun_position(pt, when, elevation=0.0)`` (#36): the sun's altitude and azimuth
   in degrees at a moment (geometric altitude of the centre, as
@@ -18,7 +29,9 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   sunset as ``get_solar_data`` defines them (centre above -0.833°, less the
   horizon dip). Twilight is not daylight. Needs ``ephem`` only.
 - ``to_local_time(dt, pt)`` (#36): convert a datetime to the local time at a
-  point (UTC for open ocean). Needs ``timezonefinder``.
+  point. At sea that is timezonefinder's nautical zone (e.g. ``Etc/GMT+2``
+  at 30° W on the equator); UTC only where it finds no zone. Needs
+  ``timezonefinder``.
 - ``format_iso8601(dt, digits=3)`` (#36): UTC ISO 8601 string ending in ``Z``,
   milliseconds by default. Extra digits are cut, never rounded, so a time
   never rolls into the next second or day. ``digits`` is 0 to 6.
@@ -29,8 +42,13 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   ``ValueError`` or gave the wrong date. Seconds (below 1e10) and
   milliseconds (from 1e10) are unchanged, except millisecond timestamps
   after the year 2286, which are now read as microseconds. Integer
-  timestamps are converted exactly (nanoseconds are cut to the
-  microsecond).
+  timestamps are converted exactly, except that nanoseconds are rounded
+  down to the microsecond (a negative one can land 1 µs earlier than
+  dropping digits). Integer milliseconds are now exact too: on 0.4.2 the
+  last millisecond value (``9_999_999_999_999``) came out 1 µs off.
+- ``point_to_tz_offset``: the missing-``timezonefinder`` error now uses the
+  same wording as the solar and lunar functions. Its docstring now says
+  sea points get timezonefinder's nautical zone, not UTC.
 
 ---
 
