@@ -48,12 +48,16 @@ dependency raises ``❌ [function_name] …`` via :mod:`wherewhen._messages`.
 """
 
 import math
+from functools import lru_cache
 from typing import Tuple
 
+from shapely import wkt as _wkt
 from shapely.geometry import Point
+from shapely.prepared import prep as _prep
 
+from wherewhen._china_region import CHINA_REGION_WKT as _CHINA_REGION_WKT
 from wherewhen._messages import warn as _warn
-from wherewhen._validators import _validate_point, _validate_string
+from wherewhen._validators import _validate_bool, _validate_point, _validate_string
 
 # ── Optional-dependency guard ─────────────────────────────────────────────────
 try:
@@ -78,10 +82,6 @@ _GCJ_EE: float = 0.00669342162296594323
 
 # BD-09 applies a further obfuscation layer on top of GCJ-02
 _BD_PI: float = math.pi * 3000.0 / 180.0
-
-# Approximate bounding box for mainland China (used to skip the offset outside China)
-_CN_LON_MIN, _CN_LON_MAX = 72.004, 137.8347
-_CN_LAT_MIN, _CN_LAT_MAX = 0.8293, 55.8271
 
 __all__ = [
     "WGS84_A",
@@ -129,48 +129,122 @@ def _gcj02_offset(lon: float, lat: float) -> Tuple[float, float]:
     return dlon, dlat
 
 
+@lru_cache(maxsize=1)
+def _china_region():
+    """The GCJ-02/BD-09 region as a prepared geometry, parsed on first use."""
+    return _prep(_wkt.loads(_CHINA_REGION_WKT))
+
+
 def _in_china(lon: float, lat: float) -> bool:
-    """Return True if the coordinate falls within the mainland China bounding box."""
-    return _CN_LON_MIN <= lon <= _CN_LON_MAX and _CN_LAT_MIN <= lat <= _CN_LAT_MAX
+    """
+    Return True if a WGS-84 coordinate is where GCJ-02 and BD-09 apply.
+
+    That is mainland China, Hong Kong or Macau, or within the 0.2° sea
+    margin around them (see :mod:`wherewhen._china_region`).  Taiwan and
+    every other country are outside.
+    """
+    return _china_region().intersects(Point(lon, lat))
+
+
+def _gcj02_forward(lon: float, lat: float) -> Tuple[float, float]:
+    """WGS-84 → GCJ-02 offset, applied wherever the point is."""
+    dlon, dlat = _gcj02_offset(lon - 105.0, lat - 35.0)
+    return lon + dlon, lat + dlat
+
+
+def _gcj02_inverse(lon: float, lat: float) -> Tuple[float, float]:
+    """GCJ-02 → WGS-84 by fixed-point iteration (well under a millimetre)."""
+    wgs_lon, wgs_lat = lon, lat
+    for _ in range(5):
+        dlon, dlat = _gcj02_offset(wgs_lon - 105.0, wgs_lat - 35.0)
+        wgs_lon = lon - dlon
+        wgs_lat = lat - dlat
+    return wgs_lon, wgs_lat
+
+
+def _bd09_from_gcj02(x: float, y: float) -> Tuple[float, float]:
+    """GCJ-02 → BD-09: Baidu's further offset."""
+    z = math.sqrt(x * x + y * y) + 0.00002 * math.sin(y * _BD_PI)
+    theta = math.atan2(y, x) + 0.000003 * math.cos(x * _BD_PI)
+    return z * math.cos(theta) + 0.0065, z * math.sin(theta) + 0.006
+
+
+def _bd09_to_gcj02(x: float, y: float) -> Tuple[float, float]:
+    """BD-09 → GCJ-02: Baidu's published inverse (about 0.2 m off)."""
+    x, y = x - 0.0065, y - 0.006
+    z = math.sqrt(x * x + y * y) - 0.00002 * math.sin(y * _BD_PI)
+    theta = math.atan2(y, x) - 0.000003 * math.cos(x * _BD_PI)
+    return z * math.cos(theta), z * math.sin(theta)
+
+
+def _check_inputs(pt: Point, skip_region_check: bool, func_name: str) -> None:
+    """Validate the arguments every Chinese conversion takes."""
+    _validate_point(pt, func_name=func_name)
+    _validate_bool(skip_region_check, func_name=func_name, name="skip_region_check")
+
+
+def _converted(coords: Tuple[float, float], func_name: str) -> Point:
+    """The converted Point; raises if it left WGS-84 bounds (only near the poles or ±180°)."""
+    out = Point(*coords)
+    _validate_point(out, func_name=func_name)
+    return out
 
 
 # ── Chinese coordinate conversions ────────────────────────────────────────────
+#
+# GCJ-02 and BD-09 apply only in mainland China, Hong Kong and Macau (see
+# _in_china).  Forward conversions decide on the WGS-84 input; reverse
+# conversions decide on the WGS-84 result, so every point inside the region
+# converts there and back exactly.  skip_region_check=True applies the
+# conversion wherever the point is.
 
-def _wgs84_to_cn_gcj02(pt: Point, *, func_name: str = "wgs84_to_cn_gcj02") -> Point:
+def _wgs84_to_cn_gcj02(
+    pt: Point, *, skip_region_check: bool = False, func_name: str = "wgs84_to_cn_gcj02"
+) -> Point:
     """Body of :func:`wgs84_to_cn_gcj02`; errors name *func_name*."""
-    _validate_point(pt, func_name=func_name)
-    lon, lat = pt.x, pt.y
-    if not _in_china(lon, lat):
+    _check_inputs(pt, skip_region_check, func_name)
+    if not skip_region_check and not _in_china(pt.x, pt.y):
         return pt
-    dlon, dlat = _gcj02_offset(lon - 105.0, lat - 35.0)
-    return Point(lon + dlon, lat + dlat)
+    return _converted(_gcj02_forward(pt.x, pt.y), func_name)
 
 
-def wgs84_to_cn_gcj02(pt: Point) -> Point:
+def wgs84_to_cn_gcj02(pt: Point, *, skip_region_check: bool = False) -> Point:
     """
     Convert a WGS-84 point to GCJ-02 (China national standard / Mars Coordinates).
 
     GCJ-02 is a coordinate obfuscation system mandated by the Chinese
     government for all official maps published in China.  It applies a
     non-linear offset to WGS-84 coordinates based on the Krassovsky
-    ellipsoid.  All points outside mainland China are returned unchanged.
+    ellipsoid.  The offset applies only in mainland China, Hong Kong and
+    Macau, including about 20 km of coastal waters; other points, Taiwan
+    included, are returned unchanged.
 
     Parameters
     ----------
     pt : shapely.geometry.Point
         WGS-84 location (``x = longitude``, ``y = latitude``).
+    skip_region_check : bool, default False
+        ``True`` applies the offset wherever *pt* is.  Use it when you know
+        the coordinates are offset outside the region too, for example
+        because the producing software used the older rectangle around
+        China, which also covers Korea, Taiwan, northern Vietnam and
+        Mongolia.
 
     Returns
     -------
     shapely.geometry.Point
-        GCJ-02 location.  Points outside mainland China are returned as-is.
+        GCJ-02 location.  Points outside the region are returned as-is
+        (the same object).
 
     Raises
     ------
     TypeError
-        If *pt* is not a :class:`shapely.geometry.Point`.
+        If *pt* is not a :class:`shapely.geometry.Point`, or
+        *skip_region_check* is not ``True`` or ``False``.
     ValueError
-        If *pt* coordinates are outside WGS-84 bounds.
+        If *pt* coordinates are outside WGS-84 bounds, or the converted
+        point would be (possible only with *skip_region_check* near the
+        poles or ±180°).
 
     See Also
     --------
@@ -185,47 +259,59 @@ def wgs84_to_cn_gcj02(pt: Point) -> Point:
     >>> pt_gcj = wgs84_to_cn_gcj02(pt_wgs)
     >>> abs(pt_gcj.x - pt_wgs.x) > 0.001   # offset applied
     True
+    >>> wgs84_to_cn_gcj02(Point(126.978, 37.5665)).x   # Seoul: outside
+    126.978
     """
-    return _wgs84_to_cn_gcj02(pt=pt, func_name="wgs84_to_cn_gcj02")
+    return _wgs84_to_cn_gcj02(
+        pt=pt, skip_region_check=skip_region_check, func_name="wgs84_to_cn_gcj02"
+    )
 
 
-def _cn_gcj02_to_wgs84(pt: Point, *, func_name: str = "cn_gcj02_to_wgs84") -> Point:
+def _cn_gcj02_to_wgs84(
+    pt: Point, *, skip_region_check: bool = False, func_name: str = "cn_gcj02_to_wgs84"
+) -> Point:
     """Body of :func:`cn_gcj02_to_wgs84`; errors name *func_name*."""
-    _validate_point(pt, func_name=func_name)
-    lon, lat = pt.x, pt.y
-    if not _in_china(lon, lat):
+    _check_inputs(pt, skip_region_check, func_name)
+    wgs = _gcj02_inverse(pt.x, pt.y)
+    if not skip_region_check and not _in_china(*wgs):
         return pt
-    wgs_lon, wgs_lat = lon, lat
-    for _ in range(5):
-        dlon, dlat = _gcj02_offset(wgs_lon - 105.0, wgs_lat - 35.0)
-        wgs_lon = lon - dlon
-        wgs_lat = lat - dlat
-    return Point(wgs_lon, wgs_lat)
+    return _converted(wgs, func_name)
 
 
-def cn_gcj02_to_wgs84(pt: Point) -> Point:
+def cn_gcj02_to_wgs84(pt: Point, *, skip_region_check: bool = False) -> Point:
     """
     Convert a GCJ-02 (China national standard) point to WGS-84.
 
     Applies an iterative correction to reverse the GCJ-02 obfuscation
-    offset.  Converges to sub-metre accuracy within a few iterations.
+    offset; it converges to well under a millimetre.  The point is
+    converted only if the WGS-84 result is in mainland China, Hong Kong or
+    Macau (with about 20 km of coastal waters), so every point
+    :func:`wgs84_to_cn_gcj02` offset comes back exactly.
 
     Parameters
     ----------
     pt : shapely.geometry.Point
         GCJ-02 location (``x = longitude``, ``y = latitude``).
+    skip_region_check : bool, default False
+        ``True`` removes the offset wherever *pt* is.  Use it when you know
+        the coordinates are offset outside the region too (see
+        :func:`wgs84_to_cn_gcj02`).
 
     Returns
     -------
     shapely.geometry.Point
-        WGS-84 location.  Points outside mainland China are returned as-is.
+        WGS-84 location.  Points outside the region are returned as-is
+        (the same object).
 
     Raises
     ------
     TypeError
-        If *pt* is not a :class:`shapely.geometry.Point`.
+        If *pt* is not a :class:`shapely.geometry.Point`, or
+        *skip_region_check* is not ``True`` or ``False``.
     ValueError
-        If *pt* coordinates are outside WGS-84 bounds.
+        If *pt* coordinates are outside WGS-84 bounds, or the converted
+        point would be (possible only with *skip_region_check* near the
+        poles or ±180°).
 
     See Also
     --------
@@ -240,43 +326,55 @@ def cn_gcj02_to_wgs84(pt: Point) -> Point:
     >>> abs(pt_wgs.x - pt_gcj.x) > 0.001
     True
     """
-    return _cn_gcj02_to_wgs84(pt=pt, func_name="cn_gcj02_to_wgs84")
+    return _cn_gcj02_to_wgs84(
+        pt=pt, skip_region_check=skip_region_check, func_name="cn_gcj02_to_wgs84"
+    )
 
 
-def _wgs84_to_cn_bd09(pt: Point, *, func_name: str = "wgs84_to_cn_bd09") -> Point:
+def _wgs84_to_cn_bd09(
+    pt: Point, *, skip_region_check: bool = False, func_name: str = "wgs84_to_cn_bd09"
+) -> Point:
     """Body of :func:`wgs84_to_cn_bd09`; errors name *func_name*."""
-    _validate_point(pt, func_name=func_name)
-    gcj = _wgs84_to_cn_gcj02(pt=pt, func_name=func_name)
-    x, y = gcj.x, gcj.y
-    z = math.sqrt(x * x + y * y) + 0.00002 * math.sin(y * _BD_PI)
-    theta = math.atan2(y, x) + 0.000003 * math.cos(x * _BD_PI)
-    return Point(z * math.cos(theta) + 0.0065, z * math.sin(theta) + 0.006)
+    _check_inputs(pt, skip_region_check, func_name)
+    if not skip_region_check and not _in_china(pt.x, pt.y):
+        return pt
+    return _converted(_bd09_from_gcj02(*_gcj02_forward(pt.x, pt.y)), func_name)
 
 
-def wgs84_to_cn_bd09(pt: Point) -> Point:
+def wgs84_to_cn_bd09(pt: Point, *, skip_region_check: bool = False) -> Point:
     """
     Convert a WGS-84 point to BD-09 (Baidu coordinate system).
 
     BD-09 is Baidu's proprietary coordinate system, which applies a
     further obfuscation offset on top of GCJ-02.  The conversion is
-    performed in two steps: WGS-84 → GCJ-02 → BD-09.
+    performed in two steps: WGS-84 → GCJ-02 → BD-09.  Like GCJ-02 it
+    applies only in mainland China, Hong Kong and Macau (with about 20 km
+    of coastal waters); other points are returned unchanged.
 
     Parameters
     ----------
     pt : shapely.geometry.Point
         WGS-84 location (``x = longitude``, ``y = latitude``).
+    skip_region_check : bool, default False
+        ``True`` applies both offsets wherever *pt* is.  Use it when you
+        know the coordinates are offset outside the region too (see
+        :func:`wgs84_to_cn_gcj02`).
 
     Returns
     -------
     shapely.geometry.Point
-        BD-09 location.
+        BD-09 location.  Points outside the region are returned as-is
+        (the same object).
 
     Raises
     ------
     TypeError
-        If *pt* is not a :class:`shapely.geometry.Point`.
+        If *pt* is not a :class:`shapely.geometry.Point`, or
+        *skip_region_check* is not ``True`` or ``False``.
     ValueError
-        If *pt* coordinates are outside WGS-84 bounds.
+        If *pt* coordinates are outside WGS-84 bounds, or the converted
+        point would be (possible only with *skip_region_check* near the
+        poles or ±180°).
 
     See Also
     --------
@@ -290,42 +388,55 @@ def wgs84_to_cn_bd09(pt: Point) -> Point:
     >>> isinstance(pt_bd, Point)
     True
     """
-    return _wgs84_to_cn_bd09(pt=pt, func_name="wgs84_to_cn_bd09")
+    return _wgs84_to_cn_bd09(
+        pt=pt, skip_region_check=skip_region_check, func_name="wgs84_to_cn_bd09"
+    )
 
 
-def _cn_bd09_to_wgs84(pt: Point, *, func_name: str = "cn_bd09_to_wgs84") -> Point:
+def _cn_bd09_to_wgs84(
+    pt: Point, *, skip_region_check: bool = False, func_name: str = "cn_bd09_to_wgs84"
+) -> Point:
     """Body of :func:`cn_bd09_to_wgs84`; errors name *func_name*."""
-    _validate_point(pt, func_name=func_name)
-    x = pt.x - 0.0065
-    y = pt.y - 0.006
-    z = math.sqrt(x * x + y * y) - 0.00002 * math.sin(y * _BD_PI)
-    theta = math.atan2(y, x) - 0.000003 * math.cos(x * _BD_PI)
-    gcj = Point(z * math.cos(theta), z * math.sin(theta))
-    return _cn_gcj02_to_wgs84(pt=gcj, func_name=func_name)
+    _check_inputs(pt, skip_region_check, func_name)
+    wgs = _gcj02_inverse(*_bd09_to_gcj02(pt.x, pt.y))
+    if not skip_region_check and not _in_china(*wgs):
+        return pt
+    return _converted(wgs, func_name)
 
 
-def cn_bd09_to_wgs84(pt: Point) -> Point:
+def cn_bd09_to_wgs84(pt: Point, *, skip_region_check: bool = False) -> Point:
     """
     Convert a BD-09 (Baidu) point to WGS-84.
 
     The conversion is performed in two steps: BD-09 → GCJ-02 → WGS-84.
+    The point is converted only if the WGS-84 result is in mainland China,
+    Hong Kong or Macau (with about 20 km of coastal waters).  Baidu's
+    inverse is about 0.2 m off.
 
     Parameters
     ----------
     pt : shapely.geometry.Point
         BD-09 location (``x = longitude``, ``y = latitude``).
+    skip_region_check : bool, default False
+        ``True`` removes both offsets wherever *pt* is.  Use it when you
+        know the coordinates are offset outside the region too (see
+        :func:`wgs84_to_cn_gcj02`).
 
     Returns
     -------
     shapely.geometry.Point
-        WGS-84 location.
+        WGS-84 location.  Points outside the region are returned as-is
+        (the same object).
 
     Raises
     ------
     TypeError
-        If *pt* is not a :class:`shapely.geometry.Point`.
+        If *pt* is not a :class:`shapely.geometry.Point`, or
+        *skip_region_check* is not ``True`` or ``False``.
     ValueError
-        If *pt* coordinates are outside WGS-84 bounds.
+        If *pt* coordinates are outside WGS-84 bounds, or the converted
+        point would be (possible only with *skip_region_check* near the
+        poles or ±180°).
 
     See Also
     --------
@@ -339,7 +450,9 @@ def cn_bd09_to_wgs84(pt: Point) -> Point:
     >>> isinstance(pt_wgs, Point)
     True
     """
-    return _cn_bd09_to_wgs84(pt=pt, func_name="cn_bd09_to_wgs84")
+    return _cn_bd09_to_wgs84(
+        pt=pt, skip_region_check=skip_region_check, func_name="cn_bd09_to_wgs84"
+    )
 
 
 # ── Russian coordinate conversions ────────────────────────────────────────────
@@ -474,9 +587,16 @@ _FROM_WGS84 = {
     "SK42":  _wgs84_to_ru_sk42,
 }
 _SUPPORTED_CRS = ("WGS84",) + tuple(_TO_WGS84)
+_REGION_CRS = ("GCJ02", "BD09")   # the conversions that take skip_region_check
 
 
-def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
+def _leg(table, crs: str, pt: Point, skip_region_check: bool) -> Point:
+    """One convert_crs step to or from WGS-84, passing the switch where it applies."""
+    kwargs = {"skip_region_check": skip_region_check} if crs in _REGION_CRS else {}
+    return table[crs](pt=pt, func_name="convert_crs", **kwargs)
+
+
+def convert_crs(pt: Point, from_crs: str, to_crs: str, *, skip_region_check: bool = False) -> Point:
     """
     Convert a Point from one coordinate reference system to another.
 
@@ -494,6 +614,10 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
         ``"BD09"``, ``"SK42"``.
     to_crs : str
         Target CRS identifier.  Same set of values as *from_crs*.
+    skip_region_check : bool, default False
+        Passed to every GCJ-02 or BD-09 step: ``True`` applies those
+        offsets wherever the point is (see :func:`wgs84_to_cn_gcj02`).
+        It has no effect on SK-42 and WGS-84 steps.
 
     Returns
     -------
@@ -503,7 +627,8 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
     Raises
     ------
     TypeError
-        If *pt* is not a :class:`shapely.geometry.Point`.
+        If *pt* is not a :class:`shapely.geometry.Point`, or
+        *skip_region_check* is not ``True`` or ``False``.
     ValueError
         If *from_crs* or *to_crs* is not a supported CRS, or a converted
         coordinate falls outside WGS-84 bounds.
@@ -527,6 +652,7 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
     _validate_point(pt, func_name="convert_crs")
     _validate_string(from_crs, func_name="convert_crs")
     _validate_string(to_crs, func_name="convert_crs")
+    _validate_bool(skip_region_check, func_name="convert_crs", name="skip_region_check")
     source, target = from_crs.upper(), to_crs.upper()
     for name, given in ((source, from_crs), (target, to_crs)):
         if name not in _SUPPORTED_CRS:
@@ -539,5 +665,5 @@ def convert_crs(pt: Point, from_crs: str, to_crs: str) -> Point:
             )
     if source == target:
         return pt
-    wgs = pt if source == "WGS84" else _TO_WGS84[source](pt=pt, func_name="convert_crs")
-    return wgs if target == "WGS84" else _FROM_WGS84[target](pt=wgs, func_name="convert_crs")
+    wgs = pt if source == "WGS84" else _leg(_TO_WGS84, source, pt, skip_region_check)
+    return wgs if target == "WGS84" else _leg(_FROM_WGS84, target, wgs, skip_region_check)
