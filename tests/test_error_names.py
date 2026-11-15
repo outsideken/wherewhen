@@ -119,7 +119,9 @@ MORE_BAD_CALLS = [
     ("coordinate_to_point", lambda: geometry.coordinate_to_point(("a", "b"))),
     ("coordinate_to_point", lambda: geometry.coordinate_to_point("1C")),
     ("coordinate_to_point", lambda: geometry.coordinate_to_point("99XXX0000000000")),
-    ("cn_bd09_to_wgs84", lambda: crs.cn_bd09_to_wgs84(Point(-180, -90))),
+    # Outside China these return the point unchanged (#33); the switch
+    # forces the conversion, whose result leaves WGS-84 bounds.
+    ("cn_bd09_to_wgs84", lambda: crs.cn_bd09_to_wgs84(Point(-180, -90), skip_region_check=True)),
     # Range checks after parsing go through the shared validators.
     ("dms_to_point", lambda: geometry.dms_to_point("0°0'0\" N 181°0'0\" E")),
     ("ddm_to_point", lambda: geometry.ddm_to_point("95°0.000'N 0°0.000'E")),
@@ -127,7 +129,7 @@ MORE_BAD_CALLS = [
     ("ddm_to_point", lambda: geometry.ddm_to_point("51°75.0'N 0°7.0'W")),
     ("coordinate_to_point", lambda: geometry.coordinate_to_point("51°75'0\" N 0°0'0\" E")),
     ("box_to_polygon", lambda: geometry.box_to_polygon(12345)),
-    ("convert_crs", lambda: crs.convert_crs(Point(-180, -90), "BD09", "WGS84")),
+    ("convert_crs", lambda: crs.convert_crs(Point(-180, -90), "BD09", "WGS84", skip_region_check=True)),
 ]
 
 

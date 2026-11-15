@@ -57,6 +57,23 @@ def _validate_number(value, func_name: str = "validate_number", name: str = "Val
         )
 
 
+def _validate_bool(value, func_name: str = "validate_bool", name: str = "Value") -> None:
+    """
+    Raise ``TypeError`` if *value* is not ``True`` or ``False``.
+
+    ``0``, ``1``, ``None`` and strings are rejected: a switch should be set
+    on purpose.  *name* starts the message (``"skip_region_check must be
+    True or False, got int."``).
+    """
+    if not isinstance(value, bool):
+        raise TypeError(
+            _warn(
+                func_name,
+                f"{name} must be True or False, got {type(value).__name__}.",
+            )
+        )
+
+
 def _validate_integer(value, func_name: str = "validate_integer", name: str = "Value") -> None:
     """
     Raise ``TypeError`` if *value* is not an ``int`` (``bool`` rejected).

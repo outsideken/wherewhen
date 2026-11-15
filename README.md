@@ -158,6 +158,10 @@ from wherewhen.temporal import (
 
 Datum conversions for China (GCJ-02, BD-09) and Russia (SK-42).
 
+GCJ-02 and BD-09 apply only in mainland China, Hong Kong and Macau (with
+about 20 km of coastal waters); other points are returned unchanged.  Pass
+`skip_region_check=True` for data you know is offset outside that region too.
+
 ```python
 from wherewhen.crs import (
     convert_crs,

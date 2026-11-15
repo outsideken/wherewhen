@@ -10,7 +10,33 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Added
+- ``skip_region_check`` keyword on ``wgs84_to_cn_gcj02``, ``cn_gcj02_to_wgs84``,
+  ``wgs84_to_cn_bd09``, ``cn_bd09_to_wgs84`` and ``convert_crs`` (#33),
+  default ``False``. ``True`` applies the GCJ-02 / BD-09 conversion wherever
+  the point is, for data you know is offset outside China too (e.g. from
+  software that used the older rectangle). Anything but ``True`` or ``False``
+  raises ``⚠️ [func] skip_region_check must be True or False, got int.``; a
+  forced result outside WGS-84 bounds (only near the poles or ±180°) raises
+  a labelled ``ValueError``.
+- ``scripts/build_china_region.py``, which builds ``wherewhen/_china_region.py``
+  from Natural Earth (see Fixed).
+
 ### Fixed
+- GCJ-02 and BD-09 now apply only in mainland China, Hong Kong and Macau
+  (#33), as the docstrings promised. The region was a rectangle
+  (72.004–137.8347°E, 0.8293–55.8271°N) that also offset Seoul, Taipei,
+  Hanoi, Pyongyang and Ulaanbaatar by 330–480 m. It is now the Natural Earth
+  5.1.1 1:10m outline of the three, with a 0.2° (about 20 km) sea margin
+  that stops at other countries' land, simplified to about 1 km. Taiwan,
+  Kinmen included, is outside.
+- BD-09 applies only inside that region too (#33). Baidu's +0.0065°/+0.006°
+  step was added or removed everywhere, so e.g.
+  ``convert_crs(moscow, "SK42", "BD09")`` moved Moscow 775 m; points outside
+  are now returned unchanged by all four Chinese conversions.
+- ``cn_gcj02_to_wgs84`` and ``cn_bd09_to_wgs84`` decide inside/outside on
+  their WGS-84 result, so every point the forward conversion offset comes
+  back, including near the border (#33).
 - ``convert_crs`` converts between any two of WGS84, GCJ02, BD09 and SK42
   (#31). It knew only the six pairs to or from WGS-84, so ``"GCJ02"`` to
   ``"BD09"``, SK42 to GCJ02 / BD09 and their reverses raised "Unsupported
