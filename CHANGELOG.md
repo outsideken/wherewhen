@@ -10,6 +10,18 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+---
+
+## [0.6.0] — 2026-11-15
+
+Minor release: the moon's counterparts of ``sun_position`` and
+``is_daylight`` (``moon_position``, ``is_moon_up``), the principal phases of a
+lunation (``get_lunar_month``), and ``get_sky_data``, which gathers a
+location's day of sun and moon with context — the base of h3tools' cell
+card. Also the tracked ``wherewhen Overview.pdf``. **No existing function
+changes what it returns**: the sun-position helpers were generalised to any
+body, and ``sun_position`` / ``is_daylight`` give the same results.
+
 ### Added
 - ``wherewhen Overview.pdf`` (#39): a two-page overview in the same style as the
   jematools and h3tools ones, built by ``scripts/build_overview_pdf.py``.
@@ -32,13 +44,12 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
   local clock), a phase per day of it, a 5-minute day timeline of sun
   altitude and moon-up (real time from local midnight to the next, so 23 or
   25 hours on a clock-change day), and a year of sun altitudes (every 2nd
-  day, half-hourly, on the local clock). Enough to draw a sky summary for any place; h3tools' cell
-  card is built on it.
+  day, half-hourly, on the local clock). Enough to draw a sky summary for
+  any place; h3tools' cell card is built on it.
 
 ``moon_position``, ``is_moon_up`` and ``get_lunar_month`` need ``ephem``
-only; ``get_sky_data`` also needs ``timezonefinder``. ``scripts/build_overview_pdf.py`` lists them
-under "sun & moon"; the tracked overview's function count updates when the
-next release rebuilds it.
+only; ``get_sky_data`` also needs ``timezonefinder``. The overview lists
+them under "sun & moon" and is rebuilt for 0.6.0.
 
 ---
 
