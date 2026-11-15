@@ -80,7 +80,7 @@ SECTIONS = [
      "IANA timezone and DST-aware offset from a location,\nlocal time at a point or by zone name"),
     ("sun & moon", ["get_solar_data", "get_lunar_data", "sun_position", "is_daylight",
                     "moon_position", "is_moon_up", "get_lunar_month", "get_sky_data"],
-     "Sunrise, sunset, twilight, polar day and night; moon phase,\nillumination, moonrise; sun position at any moment"),
+     "Sunrise, sunset, twilight, polar day and night; moon phase,\nmoonrise, lunar month; sun and moon position; a day's sky"),
     ("crs", ["convert_crs", "wgs84_to_cn_gcj02", "cn_gcj02_to_wgs84", "wgs84_to_cn_bd09",
              "cn_bd09_to_wgs84", "wgs84_to_ru_sk42", "ru_sk42_to_wgs84"],
      "China's GCJ-02 and BD-09 (applied only inside China),\nRussia's SK-42, any pair through convert_crs"),
