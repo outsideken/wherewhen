@@ -69,6 +69,8 @@ get_lunar_data
     location on a given date.
 get_lunar_month
     The new, first-quarter, full and last-quarter moons of a lunation.
+get_sky_data
+    Sun, moon, lunar month and day/year timelines for a location and date.
 
 Toolkit
 -------
@@ -117,6 +119,7 @@ __all__ = [
     "get_solar_data",
     "get_lunar_data",
     "get_lunar_month",
+    "get_sky_data",
 ]
 
 # ── Optional-dependency guards ────────────────────────────────────────────────
@@ -1530,3 +1533,121 @@ def get_lunar_month(when: datetime) -> dict:
     out = {name: _from_ephem_date(_ephem.Date(moment), timezone.utc) for name, moment in moments}
     out["Length (Days)"] = round(float(end - start), 4)
     return out
+
+
+# ── Sky summary ───────────────────────────────────────────────────────────────
+
+# Sampling for get_sky_data's day and year timelines.
+_SKY_DAY_STEP_MIN = 5
+_SKY_YEAR_STEP_DAYS = 2
+_SKY_YEAR_STEP_MIN = 30
+
+
+def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
+    """
+    Gather the sun and moon at a location for one local day, with context.
+
+    A composer, not new math: the day's events are :func:`get_solar_data`
+    and :func:`get_lunar_data`, the lunation is :func:`get_lunar_month`,
+    and the timelines sample :func:`sun_position` and :func:`is_moon_up`.
+    Enough to draw a day strip, a lunar-month strip and a year chart.
+
+    Parameters
+    ----------
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+    eval_dt : datetime
+        Picks the local day at *pt*, as in :func:`get_solar_data`; naive
+        means UTC.
+    elevation : float, optional
+        Observer elevation above sea level in metres.  Default ``0.0``.
+
+    Returns
+    -------
+    dict
+        * ``'Solar'`` / ``'Lunar'`` : dict — :func:`get_solar_data` and
+          :func:`get_lunar_data` for the day.
+        * ``'Lunar Month'`` : dict — :func:`get_lunar_month` at local noon,
+          its times on the local clock.
+        * ``'Month Moons'`` : list of dict — one per local day from the new
+          moon's date to the next new moon's, at local noon:
+          ``{'Date', 'Illumination (%)', 'Is Waxing'}``.
+        * ``'Day'`` : dict — ``'Times'`` (local, every 5 minutes),
+          ``'Sun Altitude (Degrees)'`` and ``'Moon Up'`` (bool).
+        * ``'Year'`` : dict — ``'Dates'`` (every 2nd day of the year),
+          ``'Hours'`` (local clock, every 30 minutes, mid-slot) and
+          ``'Sun Altitude (Degrees)'`` (one row per hour slot, one column
+          per date).
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` or ``timezonefinder`` is not installed.
+    TypeError
+        If *pt* is not a Point, *eval_dt* is not a datetime, or *elevation*
+        is not a number.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    get_solar_data, get_lunar_data, get_lunar_month, sun_position, is_moon_up
+
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> from shapely.geometry import Point
+    >>> sky = get_sky_data(Point(15.6, 78.2), datetime(2026, 12, 21))
+    >>> sky["Solar"]["Day Length (Hours)"], all(sky["Day"]["Moon Up"])
+    (0.0, True)
+    """
+    _require_astro_deps("get_sky_data")
+    _validate_point(pt, func_name="get_sky_data")
+    _validate_datetime(eval_dt, func_name="get_sky_data")
+    _validate_number(elevation, func_name="get_sky_data", name="elevation")
+
+    solar = get_solar_data(pt, eval_dt, elevation=elevation)
+    lunar = get_lunar_data(pt, eval_dt, elevation=elevation)
+    local_tz = ZoneInfo(solar["Timezone Name"])
+    day = solar["Evaluation Date"]
+
+    def local_clock(d, minutes: float) -> datetime:
+        return datetime(d.year, d.month, d.day, tzinfo=local_tz) + timedelta(minutes=minutes)
+
+    month = get_lunar_month(local_clock(day, 12 * 60))
+    month = {k: (v.astimezone(local_tz) if isinstance(v, datetime) else v) for k, v in month.items()}
+
+    moons = []
+    d = month["New Moon"].date()
+    while d <= month["Next New Moon"].date():
+        m = get_lunar_data(pt, local_clock(d, 12 * 60), elevation=elevation, include_riseset=False)
+        moons.append({"Date": d, "Illumination (%)": m["Illumination (%)"], "Is Waxing": m["Is Waxing"]})
+        d += timedelta(days=1)
+
+    times = [local_clock(day, m) for m in range(0, 24 * 60, _SKY_DAY_STEP_MIN)]
+    dates = []
+    d = day.replace(month=1, day=1)
+    while d.year == day.year:
+        dates.append(d)
+        d += timedelta(days=_SKY_YEAR_STEP_DAYS)
+    slots = [m + _SKY_YEAR_STEP_MIN / 2 for m in range(0, 24 * 60, _SKY_YEAR_STEP_MIN)]
+
+    return {
+        "Solar": solar,
+        "Lunar": lunar,
+        "Lunar Month": month,
+        "Month Moons": moons,
+        "Day": {
+            "Times": times,
+            "Sun Altitude (Degrees)": [sun_position(pt, t, elevation)["Altitude (Degrees)"] for t in times],
+            "Moon Up": [is_moon_up(pt, t, elevation) for t in times],
+        },
+        "Year": {
+            "Dates": dates,
+            "Hours": [m / 60 for m in slots],
+            "Sun Altitude (Degrees)": [
+                [sun_position(pt, local_clock(d, m), elevation)["Altitude (Degrees)"] for d in dates]
+                for m in slots
+            ],
+        },
+    }

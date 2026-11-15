@@ -77,6 +77,7 @@ from wherewhen.temporal import (
     get_solar_data,
     get_lunar_data,
     get_lunar_month,
+    get_sky_data,
 )
 
 from wherewhen.crs import (

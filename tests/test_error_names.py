@@ -62,6 +62,7 @@ BAD_CALLS = {
     "get_solar_data": (temporal.get_solar_data, ("not a point", WHEN)),
     "get_lunar_data": (temporal.get_lunar_data, ("not a point", WHEN)),
     "get_lunar_month": (temporal.get_lunar_month, ("not a date",)),
+    "get_sky_data": (temporal.get_sky_data, ("not a point", WHEN)),
     # crs
     "convert_crs": (crs.convert_crs, ("not a point", "EPSG:4326", "EPSG:3857")),
     "wgs84_to_cn_gcj02": (crs.wgs84_to_cn_gcj02, ("not a point",)),
@@ -130,6 +131,8 @@ MORE_BAD_CALLS = [
     ("moon_position", lambda: temporal.moon_position(ORIGIN, WHEN, elevation="x")),
     ("is_moon_up", lambda: temporal.is_moon_up(ORIGIN, "x")),
     ("is_moon_up", lambda: temporal.is_moon_up(Point(0.0, 95.0), WHEN)),
+    ("get_sky_data", lambda: temporal.get_sky_data(ORIGIN, "x")),
+    ("get_sky_data", lambda: temporal.get_sky_data(ORIGIN, WHEN, elevation="x")),
     ("convert_crs", lambda: crs.convert_crs(ORIGIN, "EPSG:4326", 123)),
     ("convert_crs", lambda: crs.convert_crs("not a point", "WGS84", "GCJ02")),
     # Delegation (Cursor's review of #5): the error must name the function called.
@@ -185,6 +188,11 @@ ALLOWED_PUBLIC_CALLS = {
     ("moon_position", "ensure_utc"): "when validated as moon_position first",
     ("is_moon_up", "ensure_utc"): "when validated as is_moon_up first",
     ("get_lunar_month", "ensure_utc"): "when validated as get_lunar_month first",
+    ("get_sky_data", "get_solar_data"): "pt, eval_dt, elevation validated as get_sky_data first",
+    ("get_sky_data", "get_lunar_data"): "pt, eval_dt, elevation validated as get_sky_data first",
+    ("get_sky_data", "get_lunar_month"): "called on a local-noon datetime it built",
+    ("get_sky_data", "sun_position"): "pt and elevation validated; times it built",
+    ("get_sky_data", "is_moon_up"): "pt and elevation validated; times it built",
 }
 
 
