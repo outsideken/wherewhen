@@ -35,7 +35,7 @@ TWILIGHT_DEPRESSION_ANGLES : dict
 Functions
 ---------
 epoch_to_datetime
-    Convert a numeric Unix timestamp (seconds or milliseconds) to a UTC datetime.
+    Convert a numeric Unix timestamp (s, ms, µs or ns) to a UTC datetime.
 convert_to_datetime
     Parse a string or pass-through a datetime object.
 ensure_utc
@@ -46,10 +46,18 @@ start_of_day
     Truncate a datetime to midnight (00:00:00.000000).
 end_of_day
     Set a datetime to the last microsecond of the day (23:59:59.999999).
+format_iso8601
+    Format a datetime as a UTC ISO 8601 string (milliseconds by default).
 shift_tz_by_name
     Convert a datetime to a named IANA timezone.
 point_to_tz_offset
     Return the IANA timezone name and UTC offset (hours) for a location.
+to_local_time
+    Convert a datetime to the local time at a location.
+sun_position
+    The sun's altitude and azimuth at a moment, from a location.
+is_daylight
+    Whether the sun is up at a location at a moment.
 get_solar_data
     Compute solar events and twilight phases for a location on a given date.
 get_lunar_data
@@ -77,6 +85,7 @@ from wherewhen._messages import warn as _warn
 from wherewhen.geometry import EARTH_RADIUS_M
 from wherewhen._validators import (
     _validate_datetime,
+    _validate_integer,
     _validate_number,
     _validate_point,
     _validate_string,
@@ -91,8 +100,12 @@ __all__ = [
     "ensure_utc",
     "start_of_day",
     "end_of_day",
+    "format_iso8601",
     "shift_tz_by_name",
     "point_to_tz_offset",
+    "to_local_time",
+    "sun_position",
+    "is_daylight",
     "get_solar_data",
     "get_lunar_data",
 ]
@@ -154,6 +167,12 @@ _PASS_FALLBACK_STEP_DAYS: float = 0.5
 
 def _require_astro_deps(caller: str) -> None:
     """Raise ImportError, naming *caller*, if ephem or timezonefinder is missing."""
+    _require_ephem(caller)
+    _require_tz(caller)
+
+
+def _require_ephem(caller: str) -> None:
+    """Raise ImportError, naming *caller*, if ephem is missing."""
     if not _EPHEM_AVAILABLE:
         raise ImportError(
             _warn(
@@ -162,6 +181,10 @@ def _require_astro_deps(caller: str) -> None:
                 "Install with: pip install ephem",
             )
         )
+
+
+def _require_tz(caller: str) -> None:
+    """Raise ImportError, naming *caller*, if timezonefinder is missing."""
     if not _TZ_AVAILABLE:
         raise ImportError(
             _warn(
@@ -170,6 +193,11 @@ def _require_astro_deps(caller: str) -> None:
                 "Install with: pip install timezonefinder",
             )
         )
+
+
+def _tz_name_at(pt: Point) -> str:
+    """IANA timezone name at *pt*, or ``'UTC'`` outside every mapped zone."""
+    return _TF_INSTANCE.timezone_at(lng=pt.x, lat=pt.y) or "UTC"
 
 
 def _local_date(eval_dt: datetime, local_tz):
@@ -357,22 +385,49 @@ def _moon_phase_name(when, age_days: float, illumination: float, waxing: bool) -
 
 # ── Datetime helpers ──────────────────────────────────────────────────────────
 
-# Epoch values above this threshold are treated as milliseconds.
-# 1e10 seconds ≈ year 2286, so any value larger is almost certainly ms.
-_EPOCH_MS_THRESHOLD: int = 10_000_000_000
+# Epoch unit by size.  1e10 seconds is the year 2286, so each step up
+# (x1000) is the first value that would be after 2286 in the smaller unit.
+# (upper bound, units per second); anything from 1e16 up is nanoseconds.
+_EPOCH_UNITS: Tuple[Tuple[float, int], ...] = (
+    (1e10, 1),                 # seconds
+    (1e13, 1_000),             # milliseconds
+    (1e16, 1_000_000),         # microseconds
+)
+_EPOCH_NS_PER_SECOND: int = 1_000_000_000
+
+_UNIX_EPOCH: datetime = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+# format_iso8601: datetime holds at most six fractional digits.
+_ISO_MAX_DIGITS: int = 6
 
 
 def epoch_to_datetime(value: Union[int, float]) -> datetime:
     """
     Convert a numeric Unix timestamp to a UTC-aware datetime.
 
-    Values ≥ 10 000 000 000 are assumed to be **milliseconds** and are divided
-    by 1 000 before conversion; smaller values are treated as **seconds**.
+    The unit is read from the size of the value (its absolute value):
+
+    ==================  ============
+    Size                Read as
+    ==================  ============
+    below 1e10          seconds
+    1e10 to below 1e13  milliseconds
+    1e13 to below 1e16  microseconds
+    1e16 and above      nanoseconds
+    ==================  ============
+
+    1e10 seconds is the year 2286, so each boundary is the first value that
+    would land after 2286 in the smaller unit.  A millisecond timestamp
+    after 2286 is therefore read as microseconds.
+
+    Integers are converted exactly; nanoseconds are cut to the microsecond
+    (a datetime holds no finer).  Floats are divided by the unit first.
 
     Parameters
     ----------
     value : int or float
-        Unix timestamp in seconds or milliseconds.
+        Unix timestamp in seconds, milliseconds, microseconds or
+        nanoseconds.
 
     Returns
     -------
@@ -395,11 +450,22 @@ def epoch_to_datetime(value: Union[int, float]) -> datetime:
 
     >>> epoch_to_datetime(1714950400000).year   # milliseconds
     2024
+
+    >>> epoch_to_datetime(1714950400123456789).microsecond   # nanoseconds
+    123456
     """
     _validate_number(value, "epoch_to_datetime", "Epoch")
-    seconds = value / 1000.0 if abs(value) >= _EPOCH_MS_THRESHOLD else value
+    per_second = _EPOCH_NS_PER_SECOND
+    for bound, units in _EPOCH_UNITS:
+        if abs(value) < bound:
+            per_second = units
+            break
     try:
-        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        if isinstance(value, int):
+            # Exact: whole microseconds, rounded down (as // does for ns).
+            micros = value * 1_000_000 // per_second
+            return _UNIX_EPOCH + timedelta(microseconds=micros)
+        return datetime.fromtimestamp(value / per_second, tz=timezone.utc)
     except (OverflowError, OSError, ValueError):
         # fromtimestamp raises OverflowError or OSError depending on the platform;
         # an out-of-range argument is a ValueError (as datetime(10000, 1, 1) is).
@@ -653,6 +719,71 @@ def end_of_day(dt: datetime) -> datetime:
     return dt.replace(hour=23, minute=59, second=59, microsecond=999_999)
 
 
+def format_iso8601(dt: datetime, digits: int = 3) -> str:
+    """
+    Format *dt* as a UTC ISO 8601 string ending in ``Z``.
+
+    The datetime is converted to UTC first (naive = UTC, as in
+    :func:`ensure_utc`).  The fraction of a second is **cut** to *digits*,
+    never rounded, so ``23:59:59.9999`` stays in the same second (and day).
+
+    Parameters
+    ----------
+    dt : datetime
+        The datetime to format.  May be naive (assumed UTC) or aware.
+    digits : int, optional
+        Fractional-second digits, ``0`` to ``6``.  Default ``3``
+        (milliseconds, e.g. ``2026-11-15T12:00:00.123Z``).  ``0`` writes no
+        fraction and no decimal point (``2026-11-15T12:00:00Z``).
+
+    Returns
+    -------
+    str
+        ``YYYY-MM-DDTHH:MM:SS[.f…]Z``.  With *digits* 1 to 6 it reads back
+        with ``datetime.strptime(text, ISO8601)``.
+
+    Raises
+    ------
+    TypeError
+        If *dt* is not a :class:`datetime`, or *digits* is not an ``int``.
+    ValueError
+        If *digits* is outside ``0`` to ``6``.
+
+    See Also
+    --------
+    ISO8601 : ``strftime``/``strptime`` format (writes six digits).
+    ensure_utc : Convert a datetime to UTC.
+
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> format_iso8601(datetime(2026, 11, 15, 12, 0, 0, 123456))
+    '2026-11-15T12:00:00.123Z'
+    >>> format_iso8601(datetime(2026, 11, 15, 12, 0, 0, 123456), digits=6)
+    '2026-11-15T12:00:00.123456Z'
+    >>> format_iso8601(datetime(2026, 11, 15, 12, 0, 0, 999999), digits=0)
+    '2026-11-15T12:00:00Z'
+    """
+    _validate_datetime(dt, func_name="format_iso8601")
+    _validate_integer(digits, func_name="format_iso8601", name="digits")
+    if not 0 <= digits <= _ISO_MAX_DIGITS:
+        raise ValueError(
+            _warn(
+                "format_iso8601",
+                f"digits must be 0 to {_ISO_MAX_DIGITS}, got {digits}.",
+            )
+        )
+    u = ensure_utc(dt)
+    # Written by hand: strftime's %Y does not pad years below 1000 everywhere.
+    text = (
+        f"{u.year:04d}-{u.month:02d}-{u.day:02d}"
+        f"T{u.hour:02d}:{u.minute:02d}:{u.second:02d}"
+    )
+    if digits:
+        text += "." + f"{u.microsecond:06d}"[:digits]
+    return text + "Z"
+
+
 def shift_tz_by_name(dt: datetime, tz_name: str) -> datetime:
     """
     Convert *dt* to the named IANA timezone.
@@ -776,24 +907,192 @@ def point_to_tz_offset(pt: Point, eval_dt: datetime) -> Tuple[str, float]:
     >>> offset   # BST in April: UTC+1
     1.0
     """
-    if not _TZ_AVAILABLE:
-        raise ImportError(
-            _warn(
-                "point_to_tz_offset",
-                "timezonefinder is required. "
-                "Install with: pip install timezonefinder",
-            )
-        )
+    _require_tz("point_to_tz_offset")
     _validate_point(pt, func_name="point_to_tz_offset")
     _validate_datetime(eval_dt, func_name="point_to_tz_offset")
 
-    tz_name = _TF_INSTANCE.timezone_at(lng=pt.x, lat=pt.y)
-    if not tz_name:
-        return "UTC", 0.0
-
+    tz_name = _tz_name_at(pt)
     local_dt = ensure_utc(eval_dt).astimezone(ZoneInfo(tz_name))
     offset_hours = local_dt.utcoffset().total_seconds() / 3600.0
     return tz_name, offset_hours
+
+
+def to_local_time(dt: datetime, pt: Point) -> datetime:
+    """
+    Convert *dt* to the local time at *pt*.
+
+    Looks up the IANA timezone at *pt* (as :func:`point_to_tz_offset`
+    does) and converts *dt* to it, keeping the same moment.  Daylight
+    saving is the rule in effect at *dt*.  A location outside every mapped
+    timezone (open ocean) gets UTC.
+
+    Parameters
+    ----------
+    dt : datetime
+        The moment to convert.  May be naive (assumed UTC) or aware.
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+
+    Returns
+    -------
+    datetime
+        A timezone-aware datetime in the location's timezone.
+
+    Raises
+    ------
+    ImportError
+        If ``timezonefinder`` or ``zoneinfo`` is not installed.
+    TypeError
+        If *dt* is not a :class:`datetime`, or *pt* is not a
+        :class:`shapely.geometry.Point`.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    shift_tz_by_name : Convert to a timezone name you already know.
+    point_to_tz_offset : The timezone name and UTC offset at a location.
+
+    Examples
+    --------
+    >>> from datetime import datetime, timezone
+    >>> from shapely.geometry import Point
+    >>> noon_utc = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+    >>> local = to_local_time(noon_utc, Point(139.6917, 35.6895))   # Tokyo
+    >>> local.hour, str(local.tzinfo)
+    (21, 'Asia/Tokyo')
+    """
+    _require_tz("to_local_time")
+    _validate_datetime(dt, func_name="to_local_time")
+    _validate_point(pt, func_name="to_local_time")
+    return ensure_utc(dt).astimezone(ZoneInfo(_tz_name_at(pt)))
+
+
+# ── Sun position ──────────────────────────────────────────────────────────────
+
+def _sun_altitude_azimuth(pt: Point, when: datetime, elevation: float) -> Tuple[float, float]:
+    """Geometric altitude and azimuth (degrees) of the sun's centre at *when*."""
+    obs = _ephem_observer(pt, elevation, 0.0)
+    sun = _ephem.Sun()
+    altitude = _altitude_deg(obs, sun, when)
+    return altitude, math.degrees(sun.az)
+
+
+def _check_sun_inputs(pt: Point, when: datetime, elevation, caller: str) -> None:
+    _require_ephem(caller)
+    _validate_point(pt, func_name=caller)
+    _validate_datetime(when, func_name=caller)
+    _validate_number(elevation, func_name=caller, name="elevation")
+
+
+def sun_position(pt: Point, when: datetime, elevation: float = 0.0) -> dict:
+    """
+    Return where the sun is in the sky at a moment, seen from a location.
+
+    Uses ``ephem``.  The altitude is the **geometric** height of the sun's
+    centre, without refraction: the same height :func:`get_solar_data`
+    and :func:`is_daylight` measure against (sunrise is at -0.833°, which
+    already allows for refraction and the sun's radius).
+
+    Parameters
+    ----------
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+    when : datetime
+        The moment.  May be naive (assumed UTC) or aware.
+    elevation : float, optional
+        Observer elevation above sea level in metres.  Default ``0.0``.
+        It moves the position by far less than a degree.
+
+    Returns
+    -------
+    dict
+        * ``'Altitude (Degrees)'`` : float — ``-90`` to ``90``; above
+          ``0`` the centre is above the true horizon.
+        * ``'Azimuth (Degrees)'`` : float — ``0`` to ``360``, clockwise
+          from true north (``90`` = east).
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` is not installed.  ``timezonefinder`` is not needed.
+    TypeError
+        If *pt* is not a Point, *when* is not a datetime, or *elevation*
+        is not a number.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    is_daylight : Whether the sun is up at a moment.
+    get_solar_data : Sunrise, sunset and twilight for a day.
+    TWILIGHT_DEPRESSION_ANGLES : Compare the altitude with ``-angle``.
+
+    Examples
+    --------
+    >>> from datetime import datetime, timezone
+    >>> from shapely.geometry import Point
+    >>> pos = sun_position(Point(0.0, 0.0), datetime(2026, 3, 20, 12, 7, tzinfo=timezone.utc))
+    >>> pos["Altitude (Degrees)"] > 89
+    True
+    """
+    _check_sun_inputs(pt, when, elevation, "sun_position")
+    altitude, azimuth = _sun_altitude_azimuth(pt, ensure_utc(when), elevation)
+    return {"Altitude (Degrees)": altitude, "Azimuth (Degrees)": azimuth}
+
+
+def is_daylight(pt: Point, when: datetime, elevation: float = 0.0) -> bool:
+    """
+    Return ``True`` if the sun is up at *pt* at the moment *when*.
+
+    "Up" means between sunrise and sunset as :func:`get_solar_data`
+    defines them: the sun's centre is above -0.833° (refraction plus the
+    sun's radius), less the horizon dip for *elevation*.  Twilight counts
+    as not daylight; for twilight, compare
+    ``sun_position(...)['Altitude (Degrees)']`` with
+    ``-TWILIGHT_DEPRESSION_ANGLES[name]``.
+
+    Parameters
+    ----------
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+    when : datetime
+        The moment.  May be naive (assumed UTC) or aware.
+    elevation : float, optional
+        Observer elevation above sea level in metres.  Default ``0.0``.
+
+    Returns
+    -------
+    bool
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` is not installed.  ``timezonefinder`` is not needed.
+    TypeError
+        If *pt* is not a Point, *when* is not a datetime, or *elevation*
+        is not a number.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    sun_position : The sun's altitude and azimuth.
+    get_solar_data : Sunrise, sunset and twilight for a day.
+
+    Examples
+    --------
+    >>> from datetime import datetime, timezone
+    >>> from shapely.geometry import Point
+    >>> london = Point(-0.1278, 51.5074)
+    >>> is_daylight(london, datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc))
+    True
+    >>> is_daylight(london, datetime(2026, 6, 21, 0, 0, tzinfo=timezone.utc))
+    False
+    """
+    _check_sun_inputs(pt, when, elevation, "is_daylight")
+    altitude, _ = _sun_altitude_azimuth(pt, ensure_utc(when), elevation)
+    return altitude > _SUN_HORIZON_DEG - _horizon_dip_deg(elevation)
 
 
 # ── Solar data ────────────────────────────────────────────────────────────────

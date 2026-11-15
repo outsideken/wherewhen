@@ -6,6 +6,8 @@ from __future__ import annotations
 import pytest
 from datetime import datetime, timezone, timedelta
 
+from shapely.geometry import Point
+
 from tests.conftest import LONDON_PT
 
 
@@ -510,3 +512,201 @@ class TestPassSearch:
         assert found == []
         rising_starts = [s for kind, s in calls if kind == "rising"]
         assert [round(b - a, 6) for a, b in zip(rising_starts, rising_starts[1:])] == [0.5]
+
+
+# ── 0.5.0 time features ──────────────────────────────────────────────────────
+
+_INSTANT = datetime(2024, 5, 5, 23, 6, 40, 123456, tzinfo=timezone.utc)
+_INSTANT_S = 1714950400        # _INSTANT without the fraction
+
+
+class TestEpochUnits:
+    """epoch_to_datetime reads s, ms, µs and ns by size."""
+
+    @pytest.mark.parametrize("scale", [1, 10**3, 10**6, 10**9])
+    def test_every_unit_gives_the_same_moment(self, scale):
+        from wherewhen.temporal import epoch_to_datetime
+        assert epoch_to_datetime(_INSTANT_S * scale) == _INSTANT.replace(microsecond=0)
+
+    def test_microseconds_and_nanoseconds_are_exact(self):
+        from wherewhen.temporal import epoch_to_datetime
+        assert epoch_to_datetime(1714950400123456) == _INSTANT
+        assert epoch_to_datetime(1714950400123456789) == _INSTANT   # ns cut to µs
+
+    def test_boundaries(self):
+        from wherewhen.temporal import epoch_to_datetime
+        assert epoch_to_datetime(9_999_999_999).year == 2286          # last seconds value
+        assert epoch_to_datetime(10_000_000_000) == datetime(1970, 4, 26, 17, 46, 40, tzinfo=timezone.utc)
+        assert epoch_to_datetime(9_999_999_999_999).year == 2286      # last ms value
+        assert epoch_to_datetime(10**13).year == 1970                 # first µs value
+        assert epoch_to_datetime(10**16).year == 1970                 # first ns value
+
+    def test_negative_values_use_their_size(self):
+        from wherewhen.temporal import epoch_to_datetime
+        assert epoch_to_datetime(-_INSTANT_S * 10**3) == epoch_to_datetime(-_INSTANT_S)
+        assert epoch_to_datetime(-1) == datetime(1969, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+        assert epoch_to_datetime(-1_500_000).year == 1969            # below 1e10: seconds
+
+    def test_floats_divide_by_the_unit(self):
+        from wherewhen.temporal import epoch_to_datetime
+        assert epoch_to_datetime(1714950400123.0) == _INSTANT.replace(microsecond=123000)
+        assert epoch_to_datetime(1714950400123456.0).replace(microsecond=0) == _INSTANT.replace(microsecond=0)
+
+    def test_int_and_float_seconds_agree(self):
+        from wherewhen.temporal import epoch_to_datetime
+        assert epoch_to_datetime(_INSTANT_S) == epoch_to_datetime(float(_INSTANT_S))
+
+
+class TestFormatISO8601:
+
+    def test_default_is_milliseconds(self):
+        from wherewhen.temporal import format_iso8601
+        assert format_iso8601(_INSTANT) == "2024-05-05T23:06:40.123Z"
+
+    @pytest.mark.parametrize("digits, expected", [
+        (0, "2024-05-05T23:06:40Z"),
+        (1, "2024-05-05T23:06:40.1Z"),
+        (2, "2024-05-05T23:06:40.12Z"),
+        (3, "2024-05-05T23:06:40.123Z"),
+        (4, "2024-05-05T23:06:40.1234Z"),
+        (5, "2024-05-05T23:06:40.12345Z"),
+        (6, "2024-05-05T23:06:40.123456Z"),
+    ])
+    def test_digits(self, digits, expected):
+        from wherewhen.temporal import format_iso8601
+        assert format_iso8601(_INSTANT, digits=digits) == expected
+
+    def test_cuts_never_rounds(self):
+        from wherewhen.temporal import format_iso8601
+        last = datetime(2026, 12, 31, 23, 59, 59, 999999)
+        assert format_iso8601(last) == "2026-12-31T23:59:59.999Z"
+        assert format_iso8601(last, digits=0) == "2026-12-31T23:59:59Z"
+
+    def test_naive_is_utc_and_aware_is_converted(self):
+        from wherewhen.temporal import format_iso8601
+        tokyo = timezone(timedelta(hours=9))
+        assert format_iso8601(datetime(2026, 1, 1, 8, 0, tzinfo=tokyo)) == "2025-12-31T23:00:00.000Z"
+        assert format_iso8601(datetime(2026, 1, 1, 8, 0)) == "2026-01-01T08:00:00.000Z"
+
+    def test_reads_back_with_the_iso8601_constant(self):
+        from wherewhen.temporal import ISO8601, ensure_utc, format_iso8601
+        for digits in range(1, 7):
+            text = format_iso8601(_INSTANT, digits=digits)
+            back = ensure_utc(datetime.strptime(text, ISO8601))
+            cut = 10 ** (6 - digits)
+            assert back == _INSTANT.replace(microsecond=_INSTANT.microsecond // cut * cut)
+
+    def test_matches_the_jema_millisecond_format(self):
+        # jematools' _fmt_temporal_dt: strftime seconds + '.%03d' ms + 'Z'.
+        from wherewhen.temporal import format_iso8601
+        for dt in (_INSTANT, datetime(2026, 4, 23), datetime(2026, 5, 1, 23, 59, 59, 999999)):
+            u = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            jema = f"{u.strftime('%Y-%m-%dT%H:%M:%S')}.{u.microsecond // 1000:03d}Z"
+            assert format_iso8601(dt) == jema
+
+    def test_years_below_1000_are_padded(self):
+        from wherewhen.temporal import format_iso8601
+        assert format_iso8601(datetime(999, 1, 2, 3, 4, 5)) == "0999-01-02T03:04:05.000Z"
+
+
+class TestToLocalTime:
+
+    def test_tokyo(self):
+        from wherewhen.temporal import to_local_time
+        local = to_local_time(datetime(2026, 7, 1, 12, tzinfo=timezone.utc), Point(139.6917, 35.6895))
+        assert (local.hour, str(local.tzinfo)) == (21, "Asia/Tokyo")
+
+    def test_london_summer_and_winter(self):
+        from wherewhen.temporal import to_local_time
+        assert to_local_time(datetime(2026, 7, 1, 12), LONDON_PT).hour == 13   # BST, naive = UTC
+        assert to_local_time(datetime(2026, 1, 1, 12), LONDON_PT).hour == 12   # GMT
+
+    def test_same_moment(self):
+        from wherewhen.temporal import to_local_time
+        dt = datetime(2026, 3, 29, 0, 30, tzinfo=timezone.utc)   # the night London changes clocks
+        assert to_local_time(dt, LONDON_PT) == dt
+
+    def test_agrees_with_point_to_tz_offset_and_shift_tz_by_name(self):
+        from wherewhen.temporal import point_to_tz_offset, shift_tz_by_name, to_local_time
+        dt = datetime(2026, 11, 15, 6, tzinfo=timezone.utc)
+        for pt in (LONDON_PT, Point(36.8219, -1.2921), Point(-74.006, 40.7128), Point(-30.0, 0.0)):
+            name, offset = point_to_tz_offset(pt, dt)
+            local = to_local_time(dt, pt)
+            assert local == shift_tz_by_name(dt, name)
+            assert local.utcoffset() == timedelta(hours=offset)
+
+
+class TestSunPosition:
+
+    def test_keys_and_ranges(self):
+        from wherewhen.temporal import sun_position
+        pos = sun_position(LONDON_PT, datetime(2026, 6, 21, 9, 0))
+        assert set(pos) == {"Altitude (Degrees)", "Azimuth (Degrees)"}
+        assert -90 <= pos["Altitude (Degrees)"] <= 90
+        assert 0 <= pos["Azimuth (Degrees)"] < 360
+
+    def test_london_solar_noon_is_due_south_and_at_its_highest(self):
+        from wherewhen.temporal import get_solar_data, sun_position
+        noon = get_solar_data(LONDON_PT, datetime(2026, 6, 21))["Solar Noon"]
+        pos = sun_position(LONDON_PT, noon)
+        assert pos["Azimuth (Degrees)"] == pytest.approx(180.0, abs=0.05)
+        # 90 - latitude + declination (23.44°) on the June solstice.
+        assert pos["Altitude (Degrees)"] == pytest.approx(90 - 51.5074 + 23.44, abs=0.05)
+        for minutes in (-10, 10):
+            assert sun_position(LONDON_PT, noon + timedelta(minutes=minutes))["Altitude (Degrees)"] < pos["Altitude (Degrees)"]
+
+    def test_morning_sun_is_in_the_east(self):
+        from wherewhen.temporal import sun_position
+        az = sun_position(LONDON_PT, datetime(2026, 3, 20, 7, 0))["Azimuth (Degrees)"]
+        assert 60 < az < 120
+
+    def test_aware_and_naive_utc_agree(self):
+        from wherewhen.temporal import sun_position
+        naive = datetime(2026, 6, 21, 9, 0)
+        paris = naive.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=2)))
+        assert sun_position(LONDON_PT, naive) == sun_position(LONDON_PT, paris)
+
+    def test_needs_no_timezonefinder(self):
+        result = TestWithoutTimezonefinder()._run_blocked("""
+            from datetime import datetime
+            from shapely.geometry import Point
+            import wherewhen.temporal as t
+            pt, when = Point(-0.1278, 51.5074), datetime(2026, 6, 21, 12)
+            print(t.is_daylight(pt, when), t.sun_position(pt, when)["Altitude (Degrees)"] > 0)
+        """)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == "True True"
+
+
+class TestIsDaylight:
+
+    def test_flips_at_sunrise_and_sunset(self):
+        from wherewhen.temporal import get_solar_data, is_daylight
+        for pt in (LONDON_PT, Point(36.8219, -1.2921), Point(151.2093, -33.8688)):
+            data = get_solar_data(pt, datetime(2026, 11, 15))
+            second = timedelta(seconds=1)
+            assert not is_daylight(pt, data["Sunrise"] - second)
+            assert is_daylight(pt, data["Sunrise"] + second)
+            assert is_daylight(pt, data["Sunset"] - second)
+            assert not is_daylight(pt, data["Sunset"] + second)
+
+    def test_elevation_brings_sunrise_earlier(self):
+        from wherewhen.temporal import get_solar_data, is_daylight
+        sea = get_solar_data(LONDON_PT, datetime(2026, 11, 15))["Sunrise"]
+        high = get_solar_data(LONDON_PT, datetime(2026, 11, 15), elevation=3000.0)["Sunrise"]
+        between = high + (sea - high) / 2
+        assert not is_daylight(LONDON_PT, between)
+        assert is_daylight(LONDON_PT, between, elevation=3000.0)
+
+    def test_polar_night_and_polar_day(self):
+        from wherewhen.temporal import is_daylight
+        tromso = Point(18.9553, 69.6492)
+        assert not any(is_daylight(tromso, datetime(2026, 12, 21, h)) for h in range(24))
+        assert all(is_daylight(tromso, datetime(2026, 6, 21, h)) for h in range(24))
+
+    def test_twilight_is_not_daylight(self):
+        from wherewhen.temporal import TWILIGHT_DEPRESSION_ANGLES, get_solar_data, is_daylight, sun_position
+        civil_dawn = get_solar_data(LONDON_PT, datetime(2026, 11, 15))["Civil"]["Dawn"]
+        later = civil_dawn + timedelta(minutes=5)
+        assert not is_daylight(LONDON_PT, later)
+        assert sun_position(LONDON_PT, later)["Altitude (Degrees)"] > -TWILIGHT_DEPRESSION_ANGLES["Civil"]

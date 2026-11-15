@@ -147,12 +147,24 @@ from wherewhen.temporal import (
     is_dt_naive,
     start_of_day,
     end_of_day,
+    format_iso8601,
     shift_tz_by_name,
     point_to_tz_offset,
+    to_local_time,
+    sun_position,
+    is_daylight,
     get_solar_data,
     get_lunar_data,
 )
 ```
+
+`epoch_to_datetime` reads seconds, milliseconds, microseconds or
+nanoseconds from the size of the number. `format_iso8601(dt)` writes a UTC
+`...T12:00:00.123Z` string (pass `digits=` for 0–6 fractional digits; extra
+digits are cut, not rounded). `to_local_time(dt, pt)` converts to the local
+time at a point. `sun_position(pt, when)` gives the sun's altitude and
+azimuth, and `is_daylight(pt, when)` says whether it is between sunrise and
+sunset; both need `ephem` but not `timezonefinder`.
 
 ### `wherewhen.crs`
 
@@ -279,8 +291,8 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 | `shapely` | All geometry modules |
 | `mgrs` | MGRS conversions |
 | `python-dateutil` | Flexible datetime parsing |
-| `timezonefinder` | `point_to_tz_offset` (soft) |
-| `ephem` | `get_solar_data`, `get_lunar_data` (soft) |
+| `timezonefinder` | `point_to_tz_offset`, `to_local_time`, solar/lunar data (soft) |
+| `ephem` | `get_solar_data`, `get_lunar_data`, `sun_position`, `is_daylight` (soft) |
 | `pyproj` | SK-42 CRS conversions only (soft) |
 
 ---
