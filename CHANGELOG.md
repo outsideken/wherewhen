@@ -10,6 +10,28 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Added
+- ``sun_position(pt, when, elevation=0.0)`` (#36): the sun's altitude and azimuth
+  in degrees at a moment (geometric altitude of the centre, as
+  ``get_solar_data`` uses). Needs ``ephem`` only.
+- ``is_daylight(pt, when, elevation=0.0)`` (#36): ``True`` between sunrise and
+  sunset as ``get_solar_data`` defines them (centre above -0.833°, less the
+  horizon dip). Twilight is not daylight. Needs ``ephem`` only.
+- ``to_local_time(dt, pt)`` (#36): convert a datetime to the local time at a
+  point (UTC for open ocean). Needs ``timezonefinder``.
+- ``format_iso8601(dt, digits=3)`` (#36): UTC ISO 8601 string ending in ``Z``,
+  milliseconds by default. Extra digits are cut, never rounded, so a time
+  never rolls into the next second or day. ``digits`` is 0 to 6.
+
+### Changed
+- ``epoch_to_datetime`` (#36) now reads **microsecond** (from 1e13) and
+  **nanosecond** (from 1e16) timestamps; on 0.4.2 they raised
+  ``ValueError`` or gave the wrong date. Seconds (below 1e10) and
+  milliseconds (from 1e10) are unchanged, except millisecond timestamps
+  after the year 2286, which are now read as microseconds. Integer
+  timestamps are converted exactly (nanoseconds are cut to the
+  microsecond).
+
 ---
 
 ## [0.4.2] — 2026-11-15

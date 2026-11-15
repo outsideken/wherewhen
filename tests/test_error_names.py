@@ -51,8 +51,12 @@ BAD_CALLS = {
     "ensure_utc": (temporal.ensure_utc, ("x",)),
     "start_of_day": (temporal.start_of_day, ("x",)),
     "end_of_day": (temporal.end_of_day, ("x",)),
+    "format_iso8601": (temporal.format_iso8601, ("x",)),
     "shift_tz_by_name": (temporal.shift_tz_by_name, ("x", "Europe/London")),
     "point_to_tz_offset": (temporal.point_to_tz_offset, ("not a point", WHEN)),
+    "to_local_time": (temporal.to_local_time, ("x", ORIGIN)),
+    "sun_position": (temporal.sun_position, ("not a point", WHEN)),
+    "is_daylight": (temporal.is_daylight, ("not a point", WHEN)),
     "get_solar_data": (temporal.get_solar_data, ("not a point", WHEN)),
     "get_lunar_data": (temporal.get_lunar_data, ("not a point", WHEN)),
     # crs
@@ -112,6 +116,13 @@ MORE_BAD_CALLS = [
     ("point_to_tz_offset", lambda: temporal.point_to_tz_offset(ORIGIN, "x")),
     ("get_solar_data", lambda: temporal.get_solar_data(Point(38.77, 48.53), "x")),
     ("get_lunar_data", lambda: temporal.get_lunar_data(Point(38.77, 48.53), "x")),
+    ("format_iso8601", lambda: temporal.format_iso8601(WHEN, digits=7)),
+    ("format_iso8601", lambda: temporal.format_iso8601(WHEN, digits=True)),
+    ("to_local_time", lambda: temporal.to_local_time(WHEN, "not a point")),
+    ("sun_position", lambda: temporal.sun_position(ORIGIN, "x")),
+    ("sun_position", lambda: temporal.sun_position(ORIGIN, WHEN, elevation="x")),
+    ("is_daylight", lambda: temporal.is_daylight(ORIGIN, "x")),
+    ("is_daylight", lambda: temporal.is_daylight(ORIGIN, WHEN, elevation=True)),
     ("convert_crs", lambda: crs.convert_crs(ORIGIN, "EPSG:4326", 123)),
     ("convert_crs", lambda: crs.convert_crs("not a point", "WGS84", "GCJ02")),
     # Delegation (Cursor's review of #5): the error must name the function called.
@@ -160,6 +171,10 @@ ALLOWED_PUBLIC_CALLS = {
     ("ensure_utc", "is_dt_naive"): "dt validated as ensure_utc first",
     ("shift_tz_by_name", "ensure_utc"): "dt validated as shift_tz_by_name first",
     ("point_to_tz_offset", "ensure_utc"): "eval_dt validated as point_to_tz_offset first",
+    ("format_iso8601", "ensure_utc"): "dt validated as format_iso8601 first",
+    ("to_local_time", "ensure_utc"): "dt validated as to_local_time first",
+    ("sun_position", "ensure_utc"): "when validated as sun_position first",
+    ("is_daylight", "ensure_utc"): "when validated as is_daylight first",
 }
 
 
@@ -223,6 +238,11 @@ EXCEPTION_CLASSES = [
     (ValueError, lambda: geometry.latlon_to_point(("a", "b"))),
     (ValueError, lambda: temporal.epoch_to_datetime(1e30)),
     (ValueError, lambda: temporal.epoch_to_datetime(-1e30)),
+    (ValueError, lambda: temporal.epoch_to_datetime(10 ** 30)),
+    (TypeError, lambda: temporal.format_iso8601(WHEN, digits=3.0)),
+    (ValueError, lambda: temporal.format_iso8601(WHEN, digits=-1)),
+    (TypeError, lambda: temporal.to_local_time(WHEN, "not a point")),
+    (TypeError, lambda: temporal.is_daylight(ORIGIN, WHEN, elevation="x")),
 ]
 
 
