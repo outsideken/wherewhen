@@ -18,6 +18,8 @@ h3tools, jematools and viztools all depend on it, so a change here reaches all t
   CI (`.github/workflows/ci.yml`) runs everything on Python 3.12 and 3.9 and
   validates notebooks.
 - `notebooks/` — `01 CRS China and Russia.ipynb` (small demo CSVs in `00 data/`).
+- `scripts/` — `build_overview_pdf.py` (with `_pdf_facts.py`) writes `wherewhen Overview.pdf`;
+  `build_china_region.py` regenerates `_china_region.py`. Dev-machine scripts, not package code.
 - `CHANGELOG.md` — record every user-visible change under `[Unreleased]`.
 
 ## Rules
@@ -30,7 +32,12 @@ h3tools, jematools and viztools all depend on it, so a change here reaches all t
   `main`. Before merging, run the dependants' suites against your branch, e.g. from
   `../jema-tools`: `PYTHONPATH=../wherewhen ../.venv/bin/python -m pytest -q`.
 - **Releases** follow the checklist in `COMPATIBILITY.md`: the version is typed only in
-  `_version.py` (`pyproject.toml` reads it), plus the `CHANGELOG.md` heading.
+  `_version.py` (`pyproject.toml` reads it), plus the `CHANGELOG.md` heading. In the
+  same release PR, rebuild the tracked overview:
+  `../.venv/bin/python scripts/build_overview_pdf.py "wherewhen Overview.pdf"`.
+  `tests/test_tracked_pdfs.py` fails if its title doesn't carry the new version (the
+  same rule as h3-tools and jema-tools). The builder runs the suite for its test count
+  and measures every number it prints, so it stops if a fact no longer holds.
 
 ## Testing
 

@@ -10,6 +10,15 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+### Added
+- ``wherewhen Overview.pdf`` (#39): a two-page overview in the same style as the
+  jematools and h3tools ones, built by ``scripts/build_overview_pdf.py``.
+  The version, test count and function counts are read from the checkout
+  and a live test run, and every number on it (China offsets, sun and moon
+  times, coordinate round trips, code results) is measured when it is
+  built, each with a labelled source line. ``tests/test_tracked_pdfs.py``
+  fails if a release bumps the version without rebuilding it.
+
 ---
 
 ## [0.5.0] — 2026-11-15
