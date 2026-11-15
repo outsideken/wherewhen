@@ -258,6 +258,8 @@ wherewhen/
 │   ├── test_crs.py
 │   └── test_package.py
 ├── notebooks/         # CRS demos (data not bundled)
+├── scripts/           # build_overview_pdf.py, build_china_region.py (dev only)
+├── wherewhen Overview.pdf   # 2-page overview, rebuilt each release
 ├── CHANGELOG.md
 ├── COMPATIBILITY.md
 ├── LICENSE
