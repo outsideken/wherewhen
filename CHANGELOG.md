@@ -10,6 +10,32 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
+The moonlight on the ground, for h3tools' cell card (#44). **One key of
+``get_sky_data`` changes:** ``'Month Moons'`` (new moon to new moon) is
+replaced by ``'Moons'``, centred on the day. Its only reader was h3tools'
+``plot_h3_cell_card``, which changes with it.
+
+### Added
+- ``moon_illuminance(pt, when, elevation=0.0)``: clear-sky moonlight on level
+  ground, in lux. From ephem's apparent magnitude m (which carries phase and
+  distance): ``2.54e-6 × 10^(-0.4 m)`` lux above the air (Allen), × sin
+  (altitude), × ``10^(-0.4 k X)`` through it (k = 0.2 per air mass,
+  Kasten–Young X). A full moon overhead gives about 0.25 lux. Cloud, haze,
+  light pollution, terrain and the sun are not included.
+- ``get_night_moonlight(pt, eval_dt, elevation=0.0)``: one night's peak
+  moonlight (local noon to local noon, while the sun is more than 6° below the
+  horizon, every 10 minutes), its local time, and ``'Dark Sky (Hours)'``, which
+  is 0 on a polar or white night.
+- ``get_moon_phases(start, end)``: every new, first-quarter, full and
+  last-quarter moon in a span, UTC, in time order.
+
+### Changed
+- ``get_sky_data``: ``'Moons'`` replaces ``'Month Moons'``. It holds the 14
+  local days either side of the day (29, the day in the middle), each with its
+  illumination and waxing at local noon plus that night's
+  ``get_night_moonlight``. New ``'Moon Phases'``: the principal phases in
+  that window, on the local clock. Still about 0.2 s.
+
 ---
 
 ## [0.6.0] — 2026-11-15
