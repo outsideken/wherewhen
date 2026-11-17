@@ -10,10 +10,16 @@ tabtools.  Dependents declare a minimum compatible version (e.g.
 
 ## [Unreleased]
 
-The moonlight on the ground, for h3tools' cell card (#44). **One key of
-``get_sky_data`` changes:** ``'Month Moons'`` (new moon to new moon) is
-replaced by ``'Moons'``, centred on the day. Its only reader was h3tools'
-``plot_h3_cell_card``, which changes with it.
+---
+
+## [0.7.0] — 2026-11-17
+
+Minor release: the moonlight on the ground, for h3tools' cell card (#44,
+merged in #45). **One key of ``get_sky_data`` changes:** ``'Month Moons'``
+(new moon to new moon) is replaced by ``'Moons'``, centred on the day. Its
+only reader was h3tools' ``plot_h3_cell_card``, which changes with it
+(outsideken/h3-tools#94, which needs ``wherewhen>=0.7.0``). No other
+existing function changes what it returns.
 
 ### Added
 - ``moon_illuminance(pt, when, elevation=0.0)``: clear-sky moonlight on level
@@ -35,6 +41,8 @@ replaced by ``'Moons'``, centred on the day. Its only reader was h3tools'
   illumination and waxing at local noon plus that night's
   ``get_night_moonlight``. New ``'Moon Phases'``: the principal phases in
   that window, on the local clock. Still about 0.2 s.
+- ``wherewhen Overview.pdf`` rebuilt for v0.7.0, and the three new functions
+  added to ``wherewhen.temporal``'s module list of functions (#46).
 
 ---
 
