@@ -62,6 +62,12 @@ moon_position
     The moon's altitude and azimuth at a moment, from a location.
 is_moon_up
     Whether the moon is up at a location at a moment.
+moon_illuminance
+    Clear-sky moonlight on level ground at a moment, in lux.
+get_night_moonlight
+    One night's peak moonlight, when it happens, and the hours of dark sky.
+get_moon_phases
+    Every new, first-quarter, full and last-quarter moon in a span.
 get_solar_data
     Compute solar events and twilight phases for a location on a given date.
 get_lunar_data
@@ -70,7 +76,7 @@ get_lunar_data
 get_lunar_month
     The new, first-quarter, full and last-quarter moons of a lunation.
 get_sky_data
-    Sun, moon, lunar month and day/year timelines for a location and date.
+    Sun, moon, moonlight and day/year timelines for a location and date.
 
 Toolkit
 -------
