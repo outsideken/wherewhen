@@ -84,7 +84,7 @@ this module directly — not re-exported by :mod:`jematools`.  JEMA
 import math
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from dateutil import parser as dateutil_parser
 from shapely.geometry import Point
@@ -116,6 +116,9 @@ __all__ = [
     "is_daylight",
     "moon_position",
     "is_moon_up",
+    "moon_illuminance",
+    "get_night_moonlight",
+    "get_moon_phases",
     "get_solar_data",
     "get_lunar_data",
     "get_lunar_month",
@@ -1535,12 +1538,258 @@ def get_lunar_month(when: datetime) -> dict:
     return out
 
 
+# ── Moonlight ─────────────────────────────────────────────────────────────────
+
+# Lux from a magnitude-0 source above the air (Allen, Astrophysical Quantities):
+# the sun at -26.74 gives 1.26e5 lux, the full moon overhead about 0.3.
+_LUX_AT_MAGNITUDE_ZERO = 2.54e-6
+# Clear-sky extinction in the visual band, magnitudes per air mass.
+_EXTINCTION_PER_AIRMASS = 0.2
+# The sky is dark enough for moonlight to matter once the sun's centre is
+# below civil dusk; get_night_moonlight samples the night this often.
+_NIGHT_SUN_ALT_DEG = -6.0
+_NIGHT_STEP_MIN = 10
+_PHASE_FINDERS = (
+    ("New Moon", "next_new_moon"),
+    ("First Quarter", "next_first_quarter_moon"),
+    ("Full Moon", "next_full_moon"),
+    ("Last Quarter", "next_last_quarter_moon"),
+)
+
+
+def _airmass(altitude_deg: float) -> float:
+    """Air mass towards a body *altitude_deg* above the horizon (Kasten & Young 1989)."""
+    zenith = 90.0 - altitude_deg
+    return 1.0 / (math.cos(math.radians(zenith)) + 0.50572 * (96.07995 - zenith) ** -1.6364)
+
+
+def _moon_lux(obs, moon, when: datetime) -> float:
+    """Clear-sky moonlight on level ground at *when*, in lux; 0 with the moon's centre down."""
+    altitude = _altitude_deg(obs, moon, when)
+    if altitude <= 0:
+        return 0.0
+    above_air = _LUX_AT_MAGNITUDE_ZERO * 10 ** (-0.4 * moon.mag)
+    through_air = 10 ** (-0.4 * _EXTINCTION_PER_AIRMASS * _airmass(altitude))
+    return above_air * math.sin(math.radians(altitude)) * through_air
+
+
+def _night_moonlight(pt: Point, local_tz, day, elevation: float) -> dict:
+    """Peak moonlight while the sun is below civil dusk, from local noon on *day* to the next."""
+    obs = _ephem_observer(pt, elevation, 0.0)
+    sun, moon = _ephem.Sun(), _ephem.Moon()
+    start = datetime(day.year, day.month, day.day, 12, tzinfo=local_tz).astimezone(timezone.utc)
+    after = day + timedelta(days=1)
+    end = datetime(after.year, after.month, after.day, 12, tzinfo=local_tz).astimezone(timezone.utc)
+    step = timedelta(minutes=_NIGHT_STEP_MIN)
+    peak, peak_at, dark = 0.0, None, 0
+    t = start
+    while t < end:
+        if _altitude_deg(obs, sun, t) < _NIGHT_SUN_ALT_DEG:
+            dark += 1
+            lux = _moon_lux(obs, moon, t)
+            if lux > peak:
+                peak, peak_at = lux, t
+        t += step
+    return {
+        "Peak Moonlight (Lux)": peak,
+        "Peak Time": peak_at.astimezone(local_tz) if peak_at is not None else None,
+        "Dark Sky (Hours)": dark * _NIGHT_STEP_MIN / 60,
+    }
+
+
+def _moon_phases(start: datetime, end: datetime) -> List[dict]:
+    """Principal phases from *start* (inclusive) to *end*, UTC, in time order."""
+    # Compared as datetimes, not ephem's float dates: a phase found from its own
+    # time differs by microseconds, which must not move it across *end*.
+    begin = _ephem.Date(_to_ephem_date(start) - _ephem.second)
+    phases = []
+    for name, finder in _PHASE_FINDERS:
+        moment = getattr(_ephem, finder)(begin)
+        when = _from_ephem_date(_ephem.Date(moment), timezone.utc)
+        while when < end:
+            if when >= start:
+                phases.append({"Phase": name, "Time": when})
+            moment = getattr(_ephem, finder)(moment)
+            when = _from_ephem_date(_ephem.Date(moment), timezone.utc)
+    return sorted(phases, key=lambda phase: phase["Time"])
+
+
+def moon_illuminance(pt: Point, when: datetime, elevation: float = 0.0) -> float:
+    """
+    Return the moonlight on level ground at a moment, in lux, for a clear sky.
+
+    An estimate from the moon's apparent magnitude (``ephem``), which carries
+    its phase and distance: ``2.54e-6 × 10^(-0.4 m)`` lux above the air
+    (Allen), times ``sin(altitude)`` for a level surface, times
+    ``10^(-0.4 k X)`` for the air (``k = 0.2`` magnitudes per air mass,
+    Kasten–Young air mass ``X``).  Cloud, haze, light pollution, terrain and
+    the sun are not included.  A full moon overhead gives about 0.25 lux.
+
+    Parameters
+    ----------
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+    when : datetime
+        The moment.  May be naive (assumed UTC) or aware.
+    elevation : float, optional
+        Observer elevation above sea level in metres.  Default ``0.0``.
+
+    Returns
+    -------
+    float
+        Lux; ``0.0`` while the moon's centre is below the horizon.
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` is not installed.  ``timezonefinder`` is not needed.
+    TypeError
+        If *pt* is not a Point, *when* is not a datetime, or *elevation*
+        is not a number.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    get_night_moonlight : The peak over one night, while the sky is dark.
+    moon_position : The moon's altitude and azimuth.
+
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> from shapely.geometry import Point
+    >>> arak = Point(49.678, 34.088)
+    >>> round(moon_illuminance(arak, datetime(2026, 12, 23, 20, 30)), 2)   # full moon, high
+    0.27
+    >>> moon_illuminance(arak, datetime(2026, 12, 23, 9, 0))               # moon down
+    0.0
+    """
+    _check_position_inputs(pt, when, elevation, "moon_illuminance")
+    return _moon_lux(_ephem_observer(pt, elevation, 0.0), _ephem.Moon(), ensure_utc(when))
+
+
+def get_night_moonlight(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
+    """
+    Return the brightest clear-sky moonlight of one night at a location.
+
+    The night runs from local noon on the day *eval_dt* picks to local noon
+    the next day, and counts while the sun's centre is more than 6° below
+    the horizon (after civil dusk), sampled every 10 minutes.  Moonlight is
+    :func:`moon_illuminance`.
+
+    Parameters
+    ----------
+    pt : shapely.geometry.Point
+        WGS-84 location (``x = longitude``, ``y = latitude``).
+    eval_dt : datetime
+        Picks the local day at *pt*, as in :func:`get_solar_data`; naive
+        means UTC.
+    elevation : float, optional
+        Observer elevation above sea level in metres.  Default ``0.0``.
+
+    Returns
+    -------
+    dict
+        * ``'Evaluation Date'`` : date — the local day the night follows.
+        * ``'Timezone Name'`` : str — IANA zone at *pt*.
+        * ``'Peak Moonlight (Lux)'`` : float — ``0.0`` if the moon is never
+          up while the sky is dark.
+        * ``'Peak Time'`` : datetime or None — local; ``None`` with no
+          moonlight.
+        * ``'Dark Sky (Hours)'`` : float — how long the sun is below civil
+          dusk; ``0.0`` on a polar or white night, where there is no dark
+          sky for moonlight to light.
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` or ``timezonefinder`` is not installed.
+    TypeError
+        If *pt* is not a Point, *eval_dt* is not a datetime, or *elevation*
+        is not a number.
+    ValueError
+        If *pt* coordinates are outside WGS-84 bounds.
+
+    See Also
+    --------
+    moon_illuminance : Moonlight at one moment.
+    get_lunar_data : Phase, illumination, moonrise and moonset for a day.
+
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> from shapely.geometry import Point
+    >>> night = get_night_moonlight(Point(49.678, 34.088), datetime(2026, 12, 23))
+    >>> round(night["Peak Moonlight (Lux)"], 2), f"{night['Peak Time']:%H:%M}"
+    (0.27, '00:00')
+    >>> get_night_moonlight(Point(18.96, 69.65), datetime(2026, 6, 21))["Dark Sky (Hours)"]
+    0.0
+    """
+    _require_astro_deps("get_night_moonlight")
+    _validate_point(pt, func_name="get_night_moonlight")
+    _validate_datetime(eval_dt, func_name="get_night_moonlight")
+    _validate_number(elevation, func_name="get_night_moonlight", name="elevation")
+    _, tz_name, _, local_tz, day = _astro_context(pt, eval_dt)
+    return {"Evaluation Date": day, "Timezone Name": tz_name, **_night_moonlight(pt, local_tz, day, elevation)}
+
+
+def get_moon_phases(start: datetime, end: datetime) -> List[dict]:
+    """
+    Return every new, first-quarter, full and last-quarter moon in a span.
+
+    The phases happen at the same instant everywhere, so no location is
+    needed.  Computed with ``ephem``.
+
+    Parameters
+    ----------
+    start, end : datetime
+        The span, *start* included and *end* not, to ephem's precision (a
+        few microseconds).  Naive means UTC.
+
+    Returns
+    -------
+    list of dict
+        ``{'Phase', 'Time'}`` in time order: ``'Phase'`` is ``'New Moon'``,
+        ``'First Quarter'``, ``'Full Moon'`` or ``'Last Quarter'`` (the
+        keys of :func:`get_lunar_month`), ``'Time'`` a UTC datetime.
+
+    Raises
+    ------
+    ImportError
+        If ``ephem`` is not installed.
+    TypeError
+        If *start* or *end* is not a datetime.
+    ValueError
+        If *end* is before *start*.
+
+    See Also
+    --------
+    get_lunar_month : The phases of the one lunation that contains a moment.
+
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> phases = get_moon_phases(datetime(2026, 12, 7), datetime(2027, 1, 5))
+    >>> [(p["Phase"], f"{p['Time']:%d %b}") for p in phases]
+    [('New Moon', '09 Dec'), ('First Quarter', '17 Dec'), ('Full Moon', '24 Dec'), ('Last Quarter', '30 Dec')]
+    """
+    _require_ephem("get_moon_phases")
+    _validate_datetime(start, func_name="get_moon_phases")
+    _validate_datetime(end, func_name="get_moon_phases")
+    start_utc, end_utc = ensure_utc(start), ensure_utc(end)
+    if end_utc < start_utc:
+        raise ValueError(_warn("get_moon_phases", f"end ({end_utc:%Y-%m-%d %H:%M} UTC) is before start "
+                                                  f"({start_utc:%Y-%m-%d %H:%M} UTC)."))
+    return _moon_phases(start_utc, end_utc)
+
+
 # ── Sky summary ───────────────────────────────────────────────────────────────
 
 # Sampling for get_sky_data's day and year timelines.
 _SKY_DAY_STEP_MIN = 5
 _SKY_YEAR_STEP_DAYS = 2
 _SKY_YEAR_STEP_MIN = 30
+_SKY_MOON_DAYS = 14          # 'Moons': this many local days either side of the day
 
 
 def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
@@ -1549,8 +1798,10 @@ def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
 
     A composer, not new math: the day's events are :func:`get_solar_data`
     and :func:`get_lunar_data`, the lunation is :func:`get_lunar_month`,
-    and the timelines sample :func:`sun_position` and :func:`is_moon_up`.
-    Enough to draw a day strip, a lunar-month strip and a year chart.
+    the moons around the day add :func:`get_night_moonlight` and
+    :func:`get_moon_phases`, and the timelines sample :func:`sun_position`
+    and :func:`is_moon_up`.  Enough to draw a day strip, a moon strip
+    centred on the day and a year chart.
 
     Parameters
     ----------
@@ -1569,9 +1820,14 @@ def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
           :func:`get_lunar_data` for the day.
         * ``'Lunar Month'`` : dict — :func:`get_lunar_month` at local noon,
           its times on the local clock.
-        * ``'Month Moons'`` : list of dict — one per local day from the new
-          moon's date to the next new moon's, at local noon:
-          ``{'Date', 'Illumination (%)', 'Is Waxing'}``.
+        * ``'Moons'`` : list of dict — one per local day, from 14 days
+          before the day to 14 after (29, the day in the middle):
+          ``'Date'``, ``'Illumination (%)'`` and ``'Is Waxing'`` at local
+          noon, and that night's :func:`get_night_moonlight`
+          (``'Peak Moonlight (Lux)'``, ``'Peak Time'``,
+          ``'Dark Sky (Hours)'``).
+        * ``'Moon Phases'`` : list of dict — :func:`get_moon_phases` over
+          those 29 local days, ``'Time'`` on the local clock.
         * ``'Day'`` : dict — ``'Times'`` (local, every 5 minutes of real
           time from local midnight to the next, so 23 or 25 hours on a
           clock-change day), ``'Sun Altitude (Degrees)'`` and ``'Moon Up'``
@@ -1595,7 +1851,8 @@ def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
 
     See Also
     --------
-    get_solar_data, get_lunar_data, get_lunar_month, sun_position, is_moon_up
+    get_solar_data, get_lunar_data, get_lunar_month, get_night_moonlight,
+    get_moon_phases, sun_position, is_moon_up
 
     Examples
     --------
@@ -1622,11 +1879,14 @@ def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
     month = {k: (v.astimezone(local_tz) if isinstance(v, datetime) else v) for k, v in month.items()}
 
     moons = []
-    d = month["New Moon"].date()
-    while d <= month["Next New Moon"].date():
+    for offset in range(-_SKY_MOON_DAYS, _SKY_MOON_DAYS + 1):
+        d = day + timedelta(days=offset)
         m = get_lunar_data(pt, local_clock(d, 12 * 60), elevation=elevation, include_riseset=False)
-        moons.append({"Date": d, "Illumination (%)": m["Illumination (%)"], "Is Waxing": m["Is Waxing"]})
-        d += timedelta(days=1)
+        moons.append({"Date": d, "Illumination (%)": m["Illumination (%)"], "Is Waxing": m["Is Waxing"],
+                      **_night_moonlight(pt, local_tz, d, elevation)})
+    phases = [{"Phase": p["Phase"], "Time": p["Time"].astimezone(local_tz)}
+              for p in _moon_phases(local_clock(moons[0]["Date"], 0).astimezone(timezone.utc),
+                                    local_clock(moons[-1]["Date"] + timedelta(days=1), 0).astimezone(timezone.utc))]
 
     # Real instants, not clock steps: a clock-change day is 23 or 25 hours long.
     day_start = local_clock(day, 0).astimezone(timezone.utc)
@@ -1649,7 +1909,8 @@ def get_sky_data(pt: Point, eval_dt: datetime, elevation: float = 0.0) -> dict:
         "Solar": solar,
         "Lunar": lunar,
         "Lunar Month": month,
-        "Month Moons": moons,
+        "Moons": moons,
+        "Moon Phases": phases,
         "Day": {
             "Times": times,
             "Sun Altitude (Degrees)": [sun_position(pt, t, elevation)["Altitude (Degrees)"] for t in times],

@@ -155,6 +155,9 @@ from wherewhen.temporal import (
     is_daylight,
     moon_position,
     is_moon_up,
+    moon_illuminance,
+    get_night_moonlight,
+    get_moon_phases,
     get_solar_data,
     get_lunar_data,
     get_lunar_month,
@@ -171,11 +174,19 @@ azimuth, and `is_daylight(pt, when)` says whether it is between sunrise and
 sunset; `moon_position` and `is_moon_up` do the same for the moon, and
 `is_moon_up` flips at the moonrise and moonset `get_lunar_data` reports.
 `get_lunar_month(when)` gives the new, first-quarter, full and last-quarter
-moons of the lunation around a moment, in UTC. All of these need `ephem` but
-not `timezonefinder`. `get_sky_data(pt, eval_dt)` gathers one local day's sun
-and moon with context — the lunation, a disc per day of it, and day and year
-timelines of sun altitude and moon-up — enough to draw a sky summary for any
-place (h3tools' cell card draws it for an H3 cell).
+moons of the lunation around a moment, in UTC, and `get_moon_phases(start, end)`
+every one of them in a span. `moon_illuminance(pt, when)` estimates the
+moonlight on level ground in lux, for a clear sky: from the moon's magnitude,
+its altitude and the air it shines through (a full moon overhead gives about
+0.25 lux; cloud, haze and light pollution are not included). All of these
+need `ephem` but not `timezonefinder`. `get_night_moonlight(pt, eval_dt)`
+gives one night's peak moonlight, when it happens, and the hours of dark sky
+(sun below civil dusk), so a polar day reads as no dark sky rather than no
+moonlight. `get_sky_data(pt, eval_dt)` gathers one local day's sun and moon
+with context — the lunation, a disc and that night's peak moonlight for each
+of the 14 days either side, the principal phases among them, and day and
+year timelines of sun altitude and moon-up — enough to draw a sky summary for
+any place (h3tools' cell card draws it for an H3 cell).
 
 ### `wherewhen.crs`
 
@@ -305,7 +316,7 @@ from `wherewhen.geometry`, `wherewhen.temporal`, or `wherewhen.crs`.
 | `mgrs` | MGRS conversions |
 | `python-dateutil` | Flexible datetime parsing |
 | `timezonefinder` | `point_to_tz_offset`, `to_local_time`, solar/lunar/sky data (soft) |
-| `ephem` | `get_solar_data`, `get_lunar_data`, `sun_position`, `is_daylight`, `moon_position`, `is_moon_up`, `get_lunar_month`, `get_sky_data` (soft) |
+| `ephem` | `get_solar_data`, `get_lunar_data`, `sun_position`, `is_daylight`, `moon_position`, `is_moon_up`, `moon_illuminance`, `get_night_moonlight`, `get_lunar_month`, `get_moon_phases`, `get_sky_data` (soft) |
 | `pyproj` | SK-42 CRS conversions only (soft) |
 
 ---

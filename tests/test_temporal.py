@@ -820,6 +820,130 @@ class TestLunarMonth:
         assert age == pytest.approx(data["Moon Age (Days)"], abs=0.05)
 
 
+ARAK_PT = Point(49.678, 34.088)
+
+
+class TestMoonIlluminance:
+
+    def test_the_lux_constant_gives_the_sun_above_the_air(self):
+        # Allen: the sun (V = -26.74) gives about 1.27e5 lux outside the atmosphere.
+        from wherewhen.temporal import _LUX_AT_MAGNITUDE_ZERO
+        assert _LUX_AT_MAGNITUDE_ZERO * 10 ** (0.4 * 26.74) == pytest.approx(1.27e5, rel=0.02)
+
+    def test_airmass(self):
+        from wherewhen.temporal import _airmass
+        assert _airmass(90.0) == pytest.approx(1.0, abs=1e-3)
+        assert _airmass(30.0) == pytest.approx(1.995, abs=0.01)
+        assert 35 < _airmass(0.0) < 40
+
+    def test_full_moon_high_in_the_sky(self):
+        from wherewhen.temporal import moon_illuminance, moon_position
+        when = datetime(2026, 12, 23, 20, 30)          # 00:00 in Tehran, full moon 24 Dec
+        assert moon_position(ARAK_PT, when)["Altitude (Degrees)"] > 75
+        assert 0.22 < moon_illuminance(ARAK_PT, when) < 0.32
+
+    def test_zero_while_the_moon_is_down(self):
+        from wherewhen.temporal import moon_illuminance, moon_position
+        for hour in range(0, 24, 3):
+            when = datetime(2026, 12, 18, hour)
+            down = moon_position(ARAK_PT, when)["Altitude (Degrees)"] <= 0
+            assert (moon_illuminance(ARAK_PT, when) == 0.0) == down
+
+    def test_a_quarter_moon_is_far_dimmer_than_half_a_full_one(self):
+        # Brightness does not follow the lit fraction: per unit of sin(altitude)
+        # the first quarter (50 % lit) gives about a tenth of the full moon.
+        import math
+        from wherewhen.temporal import moon_illuminance, moon_position
+        full, quarter = datetime(2026, 12, 23, 20, 30), datetime(2026, 12, 17, 15, 0)
+
+        def per_sine(when):
+            alt = moon_position(ARAK_PT, when)["Altitude (Degrees)"]
+            return moon_illuminance(ARAK_PT, when) / math.sin(math.radians(alt))
+
+        assert per_sine(quarter) < 0.15 * per_sine(full)
+
+    def test_naive_means_utc(self):
+        from zoneinfo import ZoneInfo
+        from wherewhen.temporal import moon_illuminance
+        naive = datetime(2026, 12, 23, 20, 30)
+        tehran = datetime(2026, 12, 24, 0, 0, tzinfo=ZoneInfo("Asia/Tehran"))
+        assert moon_illuminance(ARAK_PT, naive) == moon_illuminance(ARAK_PT, tehran)
+
+
+class TestNightMoonlight:
+
+    def test_full_moon_night_in_arak(self):
+        from wherewhen.temporal import get_night_moonlight, moon_illuminance
+        night = get_night_moonlight(ARAK_PT, datetime(2026, 12, 23))
+        assert night["Evaluation Date"].isoformat() == "2026-12-23"
+        assert night["Timezone Name"] == "Asia/Tehran"
+        assert 0.22 < night["Peak Moonlight (Lux)"] < 0.32
+        assert f"{night['Peak Time']:%Y-%m-%d %H:%M}" == "2026-12-24 00:00"
+        assert night["Peak Moonlight (Lux)"] == moon_illuminance(ARAK_PT, night["Peak Time"])
+        # Civil dusk 17:33 to civil dawn 06:45, on a 10-minute grid.
+        assert night["Dark Sky (Hours)"] == pytest.approx(13.2, abs=0.2)
+
+    def test_summer_full_moon_is_dimmer(self):
+        # The June full moon rides low over short nights.
+        from wherewhen.temporal import get_night_moonlight
+        winter = get_night_moonlight(ARAK_PT, datetime(2026, 12, 23))["Peak Moonlight (Lux)"]
+        summer = get_night_moonlight(ARAK_PT, datetime(2026, 6, 29))["Peak Moonlight (Lux)"]
+        assert summer < winter / 2
+
+    def test_new_moon_night_has_next_to_none(self):
+        from wherewhen.temporal import get_night_moonlight
+        assert get_night_moonlight(ARAK_PT, datetime(2026, 12, 9))["Peak Moonlight (Lux)"] < 0.001
+
+    def test_polar_day_has_no_dark_sky(self):
+        from wherewhen.temporal import get_night_moonlight
+        night = get_night_moonlight(Point(18.96, 69.65), datetime(2026, 6, 21))
+        assert night["Dark Sky (Hours)"] == 0.0
+        assert night["Peak Moonlight (Lux)"] == 0.0 and night["Peak Time"] is None
+
+    def test_an_aware_moment_picks_its_local_day(self):
+        from zoneinfo import ZoneInfo
+        from wherewhen.temporal import get_night_moonlight
+        early = datetime(2026, 12, 23, 23, 0, tzinfo=timezone.utc)       # 02:30 on the 24th in Tehran
+        assert get_night_moonlight(ARAK_PT, early)["Evaluation Date"].isoformat() == "2026-12-24"
+        assert get_night_moonlight(ARAK_PT, datetime(2026, 12, 23, 23, 0))["Evaluation Date"].isoformat() == \
+            "2026-12-23"   # naive: its own date
+
+
+class TestMoonPhases:
+
+    def test_december_2026_matches_get_lunar_month(self):
+        from wherewhen.temporal import get_lunar_month, get_moon_phases
+        phases = get_moon_phases(datetime(2026, 12, 7), datetime(2027, 1, 5))
+        month = get_lunar_month(datetime(2026, 12, 21))
+        assert [p["Phase"] for p in phases] == ["New Moon", "First Quarter", "Full Moon", "Last Quarter"]
+        for p in phases:
+            assert abs(p["Time"] - month[p["Phase"]]) < timedelta(milliseconds=1)
+            assert p["Time"].tzinfo == timezone.utc
+
+    def test_start_is_included_and_end_is_not(self):
+        # ephem finds the same phase a few microseconds apart from different
+        # starting points, so the boundaries hold to within a millisecond.
+        from wherewhen.temporal import get_lunar_month, get_moon_phases
+        full = get_lunar_month(datetime(2026, 12, 21))["Full Moon"]
+        ms = timedelta(milliseconds=1)
+        assert [p["Phase"] for p in get_moon_phases(full - ms, full + timedelta(days=1))] == ["Full Moon"]
+        assert get_moon_phases(full - timedelta(days=1), full - ms) == []
+        assert get_moon_phases(full + ms, full + timedelta(days=1)) == []
+
+    def test_a_year_has_each_phase_twelve_or_thirteen_times(self):
+        from collections import Counter
+        from wherewhen.temporal import get_moon_phases
+        phases = get_moon_phases(datetime(2026, 1, 1), datetime(2027, 1, 1))
+        assert set(Counter(p["Phase"] for p in phases).values()) <= {12, 13}
+        times = [p["Time"] for p in phases]
+        assert times == sorted(times)
+
+    def test_end_before_start_raises(self):
+        from wherewhen.temporal import get_moon_phases
+        with pytest.raises(ValueError, match=r"\[get_moon_phases\]"):
+            get_moon_phases(datetime(2027, 1, 1), datetime(2026, 1, 1))
+
+
 class TestSkyData:
 
     def test_parts_agree_with_the_functions_it_composes(self):
@@ -846,15 +970,33 @@ class TestSkyData:
         before = max(i for i, t in enumerate(times) if t < rise)
         assert not up[before] and up[before + 1]
 
-    def test_month_moons_cover_the_lunation(self):
-        from wherewhen.temporal import get_sky_data
-        sky = get_sky_data(Point(15.6, 78.2), datetime(2026, 12, 21))
-        moons = sky["Month Moons"]
-        assert moons[0]["Date"] == sky["Lunar Month"]["New Moon"].date()
-        assert moons[-1]["Date"] == sky["Lunar Month"]["Next New Moon"].date()
+    def test_moons_are_centred_on_the_day(self):
+        from wherewhen.temporal import get_night_moonlight, get_sky_data
+        pt, day = Point(15.6, 78.2), datetime(2026, 12, 21)
+        sky = get_sky_data(pt, day)
+        moons = sky["Moons"]
+        assert [m["Date"] for m in moons] == [day.date() + timedelta(days=k) for k in range(-14, 15)]
+        assert "Month Moons" not in sky
         full = next(m for m in moons if m["Date"] == sky["Lunar Month"]["Full Moon"].date())
         assert full["Illumination (%)"] > 98
         assert all(sky["Day"]["Moon Up"])          # polar night, moon never sets
+        for m in (moons[0], moons[14], moons[-1]):
+            night = get_night_moonlight(pt, datetime(m["Date"].year, m["Date"].month, m["Date"].day))
+            assert {k: m[k] for k in night if k in m} == {k: night[k] for k in night if k in m}
+        assert moons[14]["Dark Sky (Hours)"] == 24.0   # polar night: dark from noon to noon
+
+    def test_moon_phases_cover_the_moons_window_on_the_local_clock(self):
+        from zoneinfo import ZoneInfo
+        from wherewhen.temporal import get_moon_phases, get_sky_data
+        sky = get_sky_data(Point(49.6779, 34.0880), datetime(2026, 12, 21))
+        tehran = ZoneInfo("Asia/Tehran")
+        first, last = sky["Moons"][0]["Date"], sky["Moons"][-1]["Date"]
+        expected = get_moon_phases(datetime(first.year, first.month, first.day, tzinfo=tehran),
+                                   datetime(last.year, last.month, last.day, tzinfo=tehran) + timedelta(days=1))
+        assert [p["Phase"] for p in sky["Moon Phases"]] == [p["Phase"] for p in expected] == [
+            "New Moon", "First Quarter", "Full Moon", "Last Quarter"]
+        assert [p["Time"] for p in sky["Moon Phases"]] == [p["Time"] for p in expected]
+        assert all(str(p["Time"].tzinfo) == "Asia/Tehran" for p in sky["Moon Phases"])
 
     def test_year_grid_shape_and_polar_seasons(self):
         from wherewhen.temporal import get_sky_data
